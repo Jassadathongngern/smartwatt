@@ -1,170 +1,36 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import EnergyUsageChart from "./EnergyUsageChart.vue";
+import { useBuildingData } from "../composables/useBuildingData";
 
-// --- Firebase Imports ---
-import { db } from "../firebase";
-import { ref as dbRef, onValue, off } from "firebase/database";
+// --- Use the composable to get shared reactive data ---
+const {
+  gatewayStatus,
+  lastUpdate,
+  allBuildingTotal,
+  floorData,
+  voltage,
+  current,
+  // power, // ไม่ได้ใช้ในหน้านี้ (ใช้ allBuildingTotal แทน)
+  temperature,
+  humidity,
+  toggleFloorExpand,
+  // ✅ เพิ่มบรรทัดนี้: รับค่าที่ขาดหายไป
+  dailyEnergy,
+  cost,
+  totalUsage,
+  pm25,
+} = useBuildingData();
 
-// --- 1. State หลัก ---
+// --- Local state for this component (UI-specific) ---
 const selectedFloors = ref(["1", "2", "3"]);
 const timeRange = ref("24H");
-
-// ✅ ตัวแปรสำคัญ: ยอดรวม
-const floor3TotalRef = ref(0); // ยอดรวมชั้น 3 (ส่งให้กราฟ)
-const allBuildingTotal = ref(0); // ยอดรวมทั้งตึก (ส่งให้การ์ด CURRENT POWER)
-
-// --- 2. State สำหรับ Real-time Card ---
-const voltage = ref(0);
-const current = ref(0);
-const power = ref(0); // ค่าของ dev_001 (เก็บไว้เผื่อใช้)
-const dailyEnergy = ref(0);
-const cost = ref(0);
-const temperature = ref(0);
-const humidity = ref(0);
-const pm25 = ref(0);
-const totalUsage = ref(0);
-
-const gatewayStatus = ref("Connecting...");
-const lastUpdate = ref("-");
-
-// --- 3. Default Data ---
 const alertData = ref({ count: 0, message: "System Normal", link: "#" });
 
-// --- 4. ข้อมูลตึกและห้อง (Structure Layout) ---
-const floorData = ref([
-  {
-    id: "3",
-    totalPower: 0,
-    status: "online",
-    isExpanded: true,
-    rooms: [
-      { name: "16301", deviceId: "dev_001", type: "Server Room", power: 0, status: "offline" },
-      { name: "16302", deviceId: "dev_002", type: "Classroom", power: 0, status: "offline" },
-      { name: "16303", deviceId: "dev_003", type: "Office", power: 0, status: "offline" },
-    ],
-  },
-  {
-    id: "2",
-    totalPower: 0,
-    status: "online",
-    isExpanded: false,
-    rooms: [
-      { name: "16201", deviceId: "dev_004", power: 0, status: "offline" },
-      { name: "16202", deviceId: "dev_005", power: 0, status: "offline" },
-      { name: "16203", deviceId: "dev_006", power: 0, status: "offline" },
-    ],
-  },
-  {
-    id: "1",
-    totalPower: 0,
-    status: "online",
-    isExpanded: false,
-    rooms: [
-      { name: "16101", deviceId: "dev_007", power: 0, status: "offline" },
-      { name: "16102", deviceId: "dev_008", power: 0, status: "offline" },
-      { name: "Server", deviceId: "dev_009", power: 0, status: "offline" },
-    ],
-  },
-]);
+// The livePower for the manager chart should be the total of all floors
+const floor3TotalRef = allBuildingTotal; // Or a more specific value if needed, for now, we use the grand total.
 
-const deviceCache = ref({});
-const DEVICES_PATH = "devices";
-const CONFIG_PATH = "building_configs/floor_3/rooms";
-
-onMounted(() => {
-  const deviceRef = dbRef(db, DEVICES_PATH);
-  onValue(deviceRef, (snapshot) => {
-    const allDevices = snapshot.val();
-    if (allDevices) {
-      deviceCache.value = allDevices;
-      updateFloorValues();
-      updateMainCard(allDevices);
-    }
-  });
-
-  const configRef = dbRef(db, CONFIG_PATH);
-  onValue(configRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const floor3 = floorData.value.find((f) => f.id === "3");
-      if (floor3) {
-        floor3.rooms = Object.entries(data).map(([key, val]) => ({
-          name: key,
-          deviceId: val.deviceId,
-          type: val.type || "General",
-          power: 0,
-          status: "offline",
-        }));
-        updateFloorValues();
-      }
-    }
-  });
-});
-
-// ✅ ฟังก์ชันคำนวณยอดรวม (หัวใจสำคัญ)
-const updateFloorValues = () => {
-  const allDevices = deviceCache.value;
-  if (!allDevices) return;
-
-  let grandTotal = 0; // ตัวแปรพัก: ยอดรวมทั้งตึก
-
-  floorData.value.forEach((floor) => {
-    let floorTotal = 0;
-
-    floor.rooms.forEach((room) => {
-      const targetId = room.deviceId ? room.deviceId.toLowerCase() : "";
-      const deviceData = allDevices[targetId];
-
-      if (deviceData) {
-        const p = Number(deviceData.w || deviceData.power || 0);
-        room.power = (p / 1000).toFixed(2);
-        room.status = "online";
-        floorTotal += p;
-      } else {
-        room.status = "offline";
-      }
-    });
-
-    floor.totalPower = (floorTotal / 1000).toFixed(2);
-    grandTotal += floorTotal; // สะสมยอด
-
-    // เก็บแยกเฉพาะชั้น 3 ไว้ส่งกราฟ
-    if (floor.id === "3") {
-      floor3TotalRef.value = floorTotal;
-    }
-  });
-
-  // อัปเดตตัวแปรยอดรวมทั้งตึก
-  allBuildingTotal.value = grandTotal;
-};
-
-// ฟังก์ชันอัปเดตการ์ดใบใหญ่ (Dev_001 เป็นตัวแทนค่า Sensor อื่นๆ)
-const updateMainCard = (allDevices) => {
-  const mainDev = allDevices["dev_001"] || allDevices["dev-001"];
-  if (mainDev) {
-    voltage.value = mainDev.v || mainDev.voltage || 0;
-    current.value = mainDev.a || mainDev.current || 0;
-    power.value = mainDev.w || mainDev.power || 0;
-    temperature.value = mainDev.temp || mainDev.t || 0;
-    humidity.value = mainDev.hum || mainDev.h || 0;
-    pm25.value = mainDev.pm25 || mainDev.pm2_5 || 0;
-    dailyEnergy.value = mainDev.daily_energy || 0;
-    cost.value = mainDev.cost || (dailyEnergy.value * 4).toFixed(2);
-    totalUsage.value = mainDev.total_usage || 0;
-    gatewayStatus.value = "Active";
-    if (mainDev.last_update) {
-      lastUpdate.value = new Date(mainDev.last_update).toLocaleTimeString("th-TH");
-    }
-  }
-};
-
-onUnmounted(() => {
-  off(dbRef(db, DEVICES_PATH));
-  off(dbRef(db, CONFIG_PATH));
-});
-
-// --- Helper Functions ---
+// --- Local helper functions for UI ---
 const selectTimeRange = (range) => {
   timeRange.value = range;
 };
@@ -176,12 +42,6 @@ const toggleFloor = (floor) => {
     selectedFloors.value = selectedFloors.value.filter((f) => f !== floor);
   } else {
     selectedFloors.value.push(floor);
-  }
-};
-const toggleFloorExpand = (floorId) => {
-  const target = floorData.value.find((f) => f.id === floorId);
-  if (target) {
-    target.isExpanded = !target.isExpanded;
   }
 };
 </script>
@@ -202,7 +62,7 @@ const toggleFloorExpand = (floorId) => {
     <div class="chart-section full-width-chart">
       <div class="chart-header">
         <div class="header-left">
-          <h3>POWER CONSUMPTION ANALYSIS (FLOOR 3)</h3>
+          <h3>POWER CONSUMPTION ANALYSIS</h3>
           <div class="time-controls">
             <button
               v-for="range in ['24H', '7D', '30D']"

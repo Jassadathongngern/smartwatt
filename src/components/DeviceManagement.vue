@@ -1,9 +1,14 @@
 <script setup>
-import { ref, computed } from "vue";
-import { deviceListMock } from "../data/mockData.js";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+// ❌ ลบ Mock Data ทิ้ง
+// import { deviceListMock } from "../data/mockData.js";
+
+// ✅ นำเข้า Firebase
+import { db } from "../firebase";
+import { ref as dbRef, onValue, set, remove, update, off } from "firebase/database";
 
 // --- State ---
-const devices = ref(deviceListMock);
+const devices = ref([]); // ✅ เริ่มต้นเป็นอาเรย์ว่าง รอรับข้อมูลจริง
 const searchQuery = ref("");
 const filterStatus = ref("All");
 const filterFloor = ref("All");
@@ -16,7 +21,6 @@ const ratePresets = [1, 5, 10, 15, 30, 60];
 
 // --- Modal State (Add Device) ---
 const isAddModalOpen = ref(false);
-// ✅ เตรียมตัวแปรรับค่าฟอร์มใหม่ (รวม DevEUI, Date, Description)
 const newDeviceForm = ref({
   name: "",
   id: "",
@@ -29,10 +33,39 @@ const newDeviceForm = ref({
   description: "",
 });
 
-// --- Logic Filter ---
+// --- ✅ Real-time Listener (หัวใจสำคัญ) ---
+const devicesRef = dbRef(db, "devices");
+
+onMounted(() => {
+  // ดึงข้อมูลจาก Firebase ทันทีที่มีการเปลี่ยนแปลง
+  onValue(devicesRef, (snapshot) => {
+    const data = snapshot.val();
+    const loadedDevices = [];
+
+    if (data) {
+      // แปลง Object ของ Firebase ให้เป็น Array เพื่อวนลูปแสดงผล
+      for (const key in data) {
+        loadedDevices.push({
+          id: key, // ใช้ Key ของ Firebase เป็น ID (หรือใช้ ID ที่เราตั้งเอง)
+          ...data[key],
+        });
+      }
+      // เรียงลำดับเอาตัวใหม่ล่าสุดขึ้นก่อน (ถ้าต้องการ)
+      devices.value = loadedDevices.reverse();
+    } else {
+      devices.value = [];
+    }
+  });
+});
+
+onUnmounted(() => {
+  // ปิดการเชื่อมต่อเมื่อเปลี่ยนหน้า (ประหยัดแรม)
+  off(devicesRef);
+});
+
+// --- Logic Filter (เหมือนเดิม) ---
 const filteredDevices = computed(() => {
   return devices.value.filter((dev) => {
-    // ค้นหาจาก ชื่อ, ห้อง หรือ ID
     const matchSearch =
       dev.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       dev.room.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
@@ -45,78 +78,106 @@ const filteredDevices = computed(() => {
   });
 });
 
-// --- Actions: Edit Rate ---
+// --- Actions: Edit Rate (Update) ---
 const openEditModal = (device) => {
   selectedDevice.value = device;
-  // ดึงค่าเดิมมาใส่ (ตัดหน่วย ' min' ออก)
   tempRate.value = parseInt(device.sendRate.toString().replace(" min", ""));
   isModalOpen.value = true;
 };
 
-const saveRate = () => {
+const saveRate = async () => {
   if (selectedDevice.value && tempRate.value) {
-    selectedDevice.value.sendRate = tempRate.value + " min";
-    isModalOpen.value = false;
-    // TODO: ถ้าต่อ Firebase ให้ใส่โค้ด update() ตรงนี้
+    try {
+      // ✅ อัปเดตข้อมูลไปที่ Firebase จริงๆ
+      await update(dbRef(db, `devices/${selectedDevice.value.id}`), {
+        sendRate: tempRate.value + " min",
+      });
+
+      isModalOpen.value = false;
+      // ไม่ต้องแก้ devices.value เอง เพราะ onValue จะทำงานให้อัตโนมัติ
+      alert("อัปเดตการตั้งค่าเรียบร้อย!");
+    } catch (error) {
+      console.error(error);
+      alert("เกิดข้อผิดพลาดในการบันทึก");
+    }
   }
 };
 
-// --- Actions: Add Device ---
+// --- Actions: Add Device (Create) ---
 const openAddModal = () => {
-  // เคลียร์ค่าฟอร์มและสุ่ม ID ใหม่รอไว้
   newDeviceForm.value = {
     name: "",
-    id: `DEV-${Math.floor(Math.random() * 10000)}`,
+    id: `DEV-${Math.floor(1000 + Math.random() * 9000)}`, // สุ่มเลข 4 หลัก
     devEui: "",
     room: "",
     floor: "1",
     type: "Meter",
     sendRate: 5,
-    installDate: new Date().toISOString().split("T")[0], // วันที่ปัจจุบัน
+    installDate: new Date().toISOString().split("T")[0],
     description: "",
   };
   isAddModalOpen.value = true;
 };
 
-const handleAddDevice = () => {
-  // ตรวจสอบค่าว่าง (Validation)
+const handleAddDevice = async () => {
   if (!newDeviceForm.value.name || !newDeviceForm.value.room) {
     alert("กรุณากรอกชื่ออุปกรณ์และห้องให้ครบถ้วน");
     return;
   }
 
-  // สร้าง Object ข้อมูลใหม่
+  const deviceId = newDeviceForm.value.id; // ใช้ ID ที่สุ่มมาเป็น Key หลัก
+
   const newDev = {
-    id: newDeviceForm.value.id,
-    devEui: newDeviceForm.value.devEui || "-", // ✅ บันทึก DevEUI
+    id: deviceId, // เก็บ ID ไว้ใน Object ด้วย
+    devEui: newDeviceForm.value.devEui || "-",
     name: newDeviceForm.value.name,
     room: newDeviceForm.value.room,
     floor: newDeviceForm.value.floor,
     type: newDeviceForm.value.type,
-    battery: 100, // ค่าเริ่มต้นแบตเต็ม
-    status: "Online", // ค่าเริ่มต้นสถานะปกติ
+    battery: 100, // ค่าเริ่มต้น
+    status: "Offline", // เริ่มต้นเป็น Offline จนกว่าจะมีข้อมูลเข้า
     sendRate: newDeviceForm.value.sendRate + " min",
-    lastUpdate: "Just now",
-    installDate: newDeviceForm.value.installDate, // ✅ บันทึกวันที่ติดตั้ง
-    description: newDeviceForm.value.description, // ✅ บันทึกหมายเหตุ
+    lastUpdate: "-",
+    installDate: newDeviceForm.value.installDate,
+    description: newDeviceForm.value.description,
+
+    // เตรียมที่ว่างสำหรับค่า Sensor (Optional)
+    current_values: {
+      power: 0,
+      voltage: 0,
+      temp: 0,
+    },
   };
 
-  // เพิ่มลงในรายการ (แสดงผลทันที)
-  devices.value.unshift(newDev);
-  isAddModalOpen.value = false;
-  alert("เพิ่มอุปกรณ์เรียบร้อย!");
+  try {
+    // ✅ บันทึกลง Firebase (ใช้ set เพื่อระบุ ID เอง)
+    await set(dbRef(db, `devices/${deviceId}`), newDev);
+
+    isAddModalOpen.value = false;
+    alert("เพิ่มอุปกรณ์ลงฐานข้อมูลเรียบร้อย!");
+  } catch (error) {
+    console.error(error);
+    alert("ไม่สามารถเพิ่มอุปกรณ์ได้: " + error.message);
+  }
 };
 
-const handleDelete = (id) => {
-  if (confirm("คุณแน่ใจหรือไม่ที่จะลบอุปกรณ์นี้?")) {
-    devices.value = devices.value.filter((d) => d.id !== id);
+// --- Actions: Delete Device (Delete) ---
+const handleDelete = async (id) => {
+  if (confirm(`ยืนยันการลบอุปกรณ์ ${id} ? ข้อมูลประวัติอาจหายไปด้วย`)) {
+    try {
+      // ✅ ลบจาก Firebase จริงๆ
+      await remove(dbRef(db, `devices/${id}`));
+      // alert("ลบเรียบร้อย"); // ไม่ต้อง alert ก็ได้เพราะเห็นผลทันที
+    } catch (error) {
+      alert("ลบไม่สำเร็จ: " + error.message);
+    }
   }
 };
 
 const getBatteryColor = (level) => {
-  if (level > 50) return "#198754"; // เขียว
-  if (level > 20) return "#ffc107"; // เหลือง
-  return "#dc3545"; // แดง
+  if (level > 50) return "#198754";
+  if (level > 20) return "#ffc107";
+  return "#dc3545";
 };
 </script>
 
@@ -210,7 +271,10 @@ const getBatteryColor = (level) => {
             </td>
           </tr>
           <tr v-if="filteredDevices.length === 0">
-            <td colspan="8" class="text-center py-4 text-gray-500">No devices found.</td>
+            <td colspan="8" class="text-center py-4 text-gray-500">
+              <span v-if="devices.length === 0">Loading devices... or No data found.</span>
+              <span v-else>No matching devices found.</span>
+            </td>
           </tr>
         </tbody>
       </table>

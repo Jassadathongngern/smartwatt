@@ -1,58 +1,85 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { scheduleDataMock } from '../data/mockData.js'
+import { ref, computed, onMounted, onUnmounted } from "vue";
+// ❌ ลบ Mock Data ออก
+// import { scheduleDataMock } from '../data/mockData.js'
+
+// ✅ นำเข้า Firebase
+import { db } from "../firebase";
+import { ref as dbRef, onValue, set, remove, update, off, push } from "firebase/database";
 
 // --- State ---
-const schedules = ref(scheduleDataMock)
-const searchQuery = ref('')
-const selectedDay = ref('All')
+const schedules = ref([]); // เริ่มต้นเป็นอาเรย์ว่าง
+const searchQuery = ref("");
+const selectedDay = ref("All");
 
 // --- Modal State ---
-const showModal = ref(false)
-const isEditMode = ref(false)
-const editId = ref(null)
+const showModal = ref(false);
+const isEditMode = ref(false);
+const editId = ref(null);
 
 // --- Form Data ---
 const form = ref({
-  day: 'Monday',
-  startTime: '09:00',
-  endTime: '12:00',
-  room: '',
-  subject: '',
-  status: 'Active'
-})
+  day: "Monday",
+  startTime: "09:00",
+  endTime: "12:00",
+  room: "",
+  subject: "",
+  status: "Active",
+});
+
+// --- Firebase Logic ---
+const sRef = dbRef(db, "schedules");
+
+onMounted(() => {
+  onValue(sRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      // แปลง Object เป็น Array
+      const loadedSchedules = Object.keys(data).map((key) => ({
+        id: key,
+        ...data[key],
+      }));
+      schedules.value = loadedSchedules;
+    } else {
+      schedules.value = [];
+    }
+  });
+});
+
+onUnmounted(() => {
+  off(sRef);
+});
 
 // --- Filter Logic ---
 const filteredSchedules = computed(() => {
-  return schedules.value.filter(item => {
-    const matchSearch = item.room.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-                        item.subject.toLowerCase().includes(searchQuery.value.toLowerCase())
-    const matchDay = selectedDay.value === 'All' || item.day === selectedDay.value
-    return matchSearch && matchDay
-  })
-})
+  return schedules.value.filter((item) => {
+    const matchSearch =
+      item.room.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      item.subject.toLowerCase().includes(searchQuery.value.toLowerCase());
+    const matchDay = selectedDay.value === "All" || item.day === selectedDay.value;
+    return matchSearch && matchDay;
+  });
+});
 
 // --- Actions ---
 const openAddModal = () => {
-  isEditMode.value = false
+  isEditMode.value = false;
   form.value = {
-    day: 'Monday',
-    startTime: '09:00',
-    endTime: '12:00',
-    room: '',
-    subject: '',
-    status: 'Active'
-  }
-  showModal.value = true
-}
+    day: "Monday",
+    startTime: "09:00",
+    endTime: "12:00",
+    room: "",
+    subject: "",
+    status: "Active",
+  };
+  showModal.value = true;
+};
 
-// Modal สำหรับ "แก้ไข"
 const openEditModal = (item) => {
-  isEditMode.value = true
-  editId.value = item.id
+  isEditMode.value = true;
+  editId.value = item.id;
 
-  // แปลงเวลา "09:00 - 12:00" กลับเป็น startTime/endTime เพื่อใส่ในฟอร์ม
-  const [start, end] = item.time.split(' - ')
+  const [start, end] = item.time.split(" - ");
 
   form.value = {
     day: item.day,
@@ -60,57 +87,56 @@ const openEditModal = (item) => {
     endTime: end,
     room: item.room,
     subject: item.subject,
-    status: item.status
-  }
-  showModal.value = true
-}
+    status: item.status,
+  };
+  showModal.value = true;
+};
 
-//Save
-const handleSave = () => {
-  const timeString = `${form.value.startTime} - ${form.value.endTime}`
+// ✅ Save to Firebase
+const handleSave = async () => {
+  const timeString = `${form.value.startTime} - ${form.value.endTime}`;
+  const payload = {
+    time: timeString,
+    day: form.value.day,
+    room: form.value.room,
+    subject: form.value.subject,
+    status: form.value.status,
+  };
 
-  if (isEditMode.value) {
-    //แก้ไข
-    const index = schedules.value.findIndex(s => s.id === editId.value)
-    if (index !== -1) {
-      schedules.value[index] = {
-        id: editId.value,
-        time: timeString,
-        ...form.value
-      }
+  try {
+    if (isEditMode.value) {
+      // แก้ไข (Update)
+      await update(dbRef(db, `schedules/${editId.value}`), payload);
+    } else {
+      // เพิ่มใหม่ (Push) - Firebase จะสร้าง ID แปลกๆ ให้เองเพื่อไม่ให้ซ้ำกัน
+      await push(sRef, payload);
     }
-  } else {
-    //(Auto ID)
-    const newId = schedules.value.length > 0 ? Math.max(...schedules.value.map(s => s.id)) + 1 : 1
-    schedules.value.push({
-      id: newId,
-      time: timeString,
-      ...form.value
-    })
+    showModal.value = false;
+  } catch (error) {
+    alert("Error saving schedule: " + error.message);
   }
+};
 
-  showModal.value = false
-}
-
-//ลบข้อมูล
-const handleDelete = (id) => {
-  if (confirm('Are you sure you want to delete this schedule?')) {
-    schedules.value = schedules.value.filter(s => s.id !== id)
+// ✅ Delete from Firebase
+const handleDelete = async (id) => {
+  if (confirm("Are you sure you want to delete this schedule?")) {
+    try {
+      await remove(dbRef(db, `schedules/${id}`));
+    } catch (error) {
+      alert("Error deleting: " + error.message);
+    }
   }
-}
+};
 </script>
 
 <template>
   <div class="schedule-page">
-
     <div class="header-section">
       <div>
         <h1 class="text-2xl font-bold">Schedule Management</h1>
         <p class="text-gray-500">จัดการตารางการใช้งานห้องเรียน</p>
       </div>
-      <button class="btn-add" @click="openAddModal">
-        + Add New Class
-      </button>
+      <button class="btn-add" @click="openAddModal">+ Add New Class</button>
     </div>
 
     <div class="controls-bar">
@@ -128,7 +154,7 @@ const handleDelete = (id) => {
           type="text"
           placeholder="Search Room or Subject..."
           class="control-input search"
-        >
+        />
       </div>
     </div>
 
@@ -146,7 +172,9 @@ const handleDelete = (id) => {
         </thead>
         <tbody>
           <tr v-for="item in filteredSchedules" :key="item.id">
-            <td><span class="day-badge" :class="item.day.toLowerCase()">{{ item.day }}</span></td>
+            <td>
+              <span class="day-badge" :class="item.day.toLowerCase()">{{ item.day }}</span>
+            </td>
             <td class="font-mono">{{ item.time }}</td>
             <td class="font-bold text-blue-600">{{ item.room }}</td>
             <td>{{ item.subject }}</td>
@@ -157,12 +185,43 @@ const handleDelete = (id) => {
             </td>
             <td class="text-center action-col">
               <button class="icon-btn" @click="openEditModal(item)" title="Edit">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
               </button>
               <button class="icon-btn" @click="handleDelete(item.id)" title="Delete">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path
+                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  ></path>
+                </svg>
               </button>
             </td>
+          </tr>
+          <tr v-if="filteredSchedules.length === 0">
+            <td colspan="6" class="text-center py-4 text-gray-500">No schedules found.</td>
           </tr>
         </tbody>
       </table>
@@ -171,20 +230,25 @@ const handleDelete = (id) => {
     <div v-if="showModal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>{{ isEditMode ? 'Edit Schedule' : 'Add New Schedule' }}</h3>
+          <h3>{{ isEditMode ? "Edit Schedule" : "Add New Schedule" }}</h3>
           <button class="close-btn" @click="showModal = false">×</button>
         </div>
 
         <form @submit.prevent="handleSave">
           <div class="form-group">
             <label>Subject Name</label>
-            <input v-model="form.subject" type="text" required placeholder="e.g. Computer Programming">
+            <input
+              v-model="form.subject"
+              type="text"
+              required
+              placeholder="e.g. Computer Programming"
+            />
           </div>
 
           <div class="form-row">
             <div class="form-group half">
               <label>Room</label>
-              <input v-model="form.room" type="text" required placeholder="e.g. Room 16101">
+              <input v-model="form.room" type="text" required placeholder="e.g. Room 16101" />
             </div>
             <div class="form-group half">
               <label>Day</label>
@@ -203,11 +267,11 @@ const handleDelete = (id) => {
           <div class="form-row">
             <div class="form-group half">
               <label>Start Time</label>
-              <input v-model="form.startTime" type="time" required>
+              <input v-model="form.startTime" type="time" required />
             </div>
             <div class="form-group half">
               <label>End Time</label>
-              <input v-model="form.endTime" type="time" required>
+              <input v-model="form.endTime" type="time" required />
             </div>
           </div>
 
@@ -226,40 +290,111 @@ const handleDelete = (id) => {
         </form>
       </div>
     </div>
-
   </div>
 </template>
 
 <style scoped>
-/* --- Layout --- */
-.schedule-page { padding: 20px; background-color: #f8f9fa; min-height: 100vh; font-family: 'Inter', sans-serif; }
-.header-section { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.controls-bar { margin-bottom: 20px; }
-.filter-group { display: flex; gap: 10px; }
-.control-input { padding: 8px 12px; border: 1px solid #ced4da; border-radius: 6px; }
-.search { flex: 1; max-width: 300px; }
-
-/* --- Table --- */
-.table-container { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; }
-table { width: 100%; border-collapse: collapse; }
-th { background: #f1f3f5; text-align: left; padding: 12px; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6; }
-td { padding: 12px; border-bottom: 1px solid #e9ecef; color: #333; vertical-align: middle;}
-.text-center { text-align: center; }
-.font-mono { font-family: monospace; }
-.text-blue-600 { color: #0d6efd; font-weight: bold; }
-
-/* --- Badges --- */
-.day-badge { padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; color: white; background: #6c757d; }
-.day-badge.monday { background: #ffc107; color: #333; }
-.day-badge.tuesday { background: #e83e8c; }
-.day-badge.wednesday { background: #198754; }
-.day-badge.thursday { background: #fd7e14; }
-.day-badge.friday { background: #0d6efd; }
-.status-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
-.status-badge.active { background: #d1e7dd; color: #0f5132; }
-.status-badge.cancelled { background: #f8d7da; color: #842029; }
-
-/* --- Buttons (Main & Icons) --- */
+/* Style เดิมของพี่เป๊ะๆ เลยครับ ไม่ได้แก้เลย */
+.schedule-page {
+  padding: 20px;
+  background-color: #f8f9fa;
+  min-height: 100vh;
+  font-family: "Inter", sans-serif;
+}
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.controls-bar {
+  margin-bottom: 20px;
+}
+.filter-group {
+  display: flex;
+  gap: 10px;
+}
+.control-input {
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+}
+.search {
+  flex: 1;
+  max-width: 300px;
+}
+.table-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th {
+  background: #f1f3f5;
+  text-align: left;
+  padding: 12px;
+  font-weight: 600;
+  color: #495057;
+  border-bottom: 2px solid #dee2e6;
+}
+td {
+  padding: 12px;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+  vertical-align: middle;
+}
+.text-center {
+  text-align: center;
+}
+.font-mono {
+  font-family: monospace;
+}
+.text-blue-600 {
+  color: #0d6efd;
+  font-weight: bold;
+}
+.day-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: white;
+  background: #6c757d;
+}
+.day-badge.monday {
+  background: #ffc107;
+  color: #333;
+}
+.day-badge.tuesday {
+  background: #e83e8c;
+}
+.day-badge.wednesday {
+  background: #198754;
+}
+.day-badge.thursday {
+  background: #fd7e14;
+}
+.day-badge.friday {
+  background: #0d6efd;
+}
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+.status-badge.active {
+  background: #d1e7dd;
+  color: #0f5132;
+}
+.status-badge.cancelled {
+  background: #f8d7da;
+  color: #842029;
+}
 .btn-add {
   background: #212529;
   color: white;
@@ -268,60 +403,140 @@ td { padding: 12px; border-bottom: 1px solid #e9ecef; color: #333; vertical-alig
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
   transition: all 0.2s;
   display: flex;
   align-items: center;
   gap: 5px;
 }
-
 .btn-add:hover {
   background: #000000;
   transform: translateY(-2px);
-  box-shadow: 0 6px 10px rgba(0,0,0,0.2);
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
 }
-
 .icon-btn {
-  border: 1px solid #000; background: white; color: #000;
-  cursor: pointer; padding: 6px; border-radius: 6px; margin: 0 4px;
-  transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #000;
+  background: white;
+  color: #000;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  margin: 0 4px;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.icon-btn:hover { background-color: #000; color: #fff; transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-
-/* --- MODAL STYLES --- */
+.icon-btn:hover {
+  background-color: #000;
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
 .modal-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background: rgba(0, 0, 0, 0.5);
-  display: flex; justify-content: center; align-items: center;
-  z-index: 1000; backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
 }
 .modal-content {
-  background: white; width: 100%; max-width: 500px;
-  border-radius: 12px; padding: 25px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  background: white;
+  width: 100%;
+  max-width: 500px;
+  border-radius: 12px;
+  padding: 25px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   animation: slideDown 0.3s ease-out;
 }
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.modal-header h3 { margin: 0; font-size: 1.5rem; color: #333; }
-.close-btn { background: none; border: none; font-size: 2rem; cursor: pointer; color: #aaa; }
-.close-btn:hover { color: #000; }
-
-/* Form Styles */
-.form-group { margin-bottom: 15px; }
-.form-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 0.9rem; color: #555; }
-.form-group input, .form-group select {
-  width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px; font-size: 1rem; box-sizing: border-box;
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
-.form-row { display: flex; gap: 15px; }
-.half { flex: 1; }
-
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
-.btn-cancel { background: #e9ecef; color: #333; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-.btn-save { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-.btn-save:hover { background: #0056b3; }
-
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: #aaa;
+}
+.close-btn:hover {
+  color: #000;
+}
+.form-group {
+  margin-bottom: 15px;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #555;
+}
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+.form-row {
+  display: flex;
+  gap: 15px;
+}
+.half {
+  flex: 1;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 25px;
+}
+.btn-cancel {
+  background: #e9ecef;
+  color: #333;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-save {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-save:hover {
+  background: #0056b3;
+}
 @keyframes slideDown {
-  from { transform: translateY(-20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 </style>

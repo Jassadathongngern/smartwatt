@@ -1,79 +1,31 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import EnergyUsageChart from "./EnergyUsageChart.vue";
+import { useBuildingData } from "../composables/useBuildingData";
 
-// --- Import ข้อมูล Mock (ต้องมีบรรทัดนี้ ไม่งั้น Error) ---
-import { floorData as floorDataMock } from "../data/mockData.js";
+// --- Use the composable to get shared reactive data ---
+const {
+  gatewayStatus,
+  lastUpdate,
+  floorData,
+  voltage,
+  current,
+  power,
+  temperature,
+  humidity,
+  toggleFloorExpand,
+  dailyEnergy,
+  cost,
+  totalUsage,
+  pm25,
+} = useBuildingData();
 
-// --- Firebase Imports (หัวใจสำคัญ) ---
-import { db } from "../firebase"; // เช็คว่าไฟล์ firebase.js อยู่ใน folder src
-import { ref as dbRef, onValue, off } from "firebase/database";
-
-// --- State Variables ---
+// --- Local state for this component (UI-specific) ---
 const selectedFloors = ref(["1", "2", "3"]);
 const timeRange = ref("24H");
-const floorData = ref(floorDataMock);
+// Some data from the composable is not used here (e.g. dailyEnergy, cost) but that's fine.
 
-// ตัวแปรรับค่า Real-time
-const voltage = ref(0);
-const current = ref(0);
-const power = ref(0);
-const dailyEnergy = ref(0);
-const cost = ref(0);
-const temperature = ref(0);
-const humidity = ref(0);
-const pm25 = ref(0);
-const totalUsage = ref(0);
-
-const gatewayStatus = ref("Connecting...");
-const lastUpdate = ref("-");
-
-// --- Logic เชื่อมต่อ Firebase ---
-const devicePath = "devices/dev_001"; // ต้องตรงกับ main.py
-
-onMounted(() => {
-  console.log("🟢 Guest Dashboard Mounted. Connecting to Firebase...");
-  const deviceRef = dbRef(db, devicePath);
-
-  onValue(
-    deviceRef,
-    (snapshot) => {
-      const data = snapshot.val();
-      console.log("📦 Data received:", data); // ดูใน Console F12 ว่าข้อมูลมาไหม
-
-      if (data) {
-        voltage.value = data.v || 0;
-        current.value = data.a || 0;
-        power.value = data.w || 0;
-
-        // ค่าเสริม
-        dailyEnergy.value = data.daily_energy || 0;
-        cost.value = data.cost || 0;
-        temperature.value = data.temp || 0;
-        humidity.value = data.hum || 0;
-        pm25.value = data.pm25 || 0;
-        totalUsage.value = data.total_usage || 0;
-
-        // อัปเดตสถานะ
-        gatewayStatus.value = "Active";
-
-        if (data.last_update) {
-          lastUpdate.value = new Date(data.last_update).toLocaleTimeString("th-TH");
-        }
-      }
-    },
-    (error) => {
-      console.error("🔴 Firebase Error:", error);
-      gatewayStatus.value = "Error";
-    },
-  );
-});
-
-onUnmounted(() => {
-  off(dbRef(db, devicePath));
-});
-
-// --- Helper Functions ---
+// --- Local helper functions for UI ---
 const selectTimeRange = (range) => {
   timeRange.value = range;
 };
@@ -81,13 +33,11 @@ const selectAllFloors = () => {
   selectedFloors.value = ["1", "2", "3"];
 };
 const toggleFloor = (floor) => {
-  if (selectedFloors.value.includes(floor))
+  if (selectedFloors.value.includes(floor)) {
     selectedFloors.value = selectedFloors.value.filter((f) => f !== floor);
-  else selectedFloors.value.push(floor);
-};
-const toggleFloorExpand = (floorId) => {
-  const target = floorData.value.find((f) => f.id === floorId);
-  if (target) target.isExpanded = !target.isExpanded;
+  } else {
+    selectedFloors.value.push(floor);
+  }
 };
 </script>
 
