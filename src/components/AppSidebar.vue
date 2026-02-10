@@ -1,41 +1,41 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { auth } from '../firebase'
-import { onAuthStateChanged, signOut } from 'firebase/auth'
+import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { auth } from "../firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
-const router = useRouter()
-const isLoggedIn = ref(false)
-const isAuthReady = ref(false)
+const router = useRouter();
+const isLoggedIn = ref(false);
+const isAuthReady = ref(false);
 
 onMounted(() => {
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      isLoggedIn.value = true
+      isLoggedIn.value = true;
     } else {
-      isLoggedIn.value = false
+      isLoggedIn.value = false;
     }
-    isAuthReady.value = true
-  })
-})
+    isAuthReady.value = true;
+  });
+});
 
 const handleLogout = async () => {
   try {
-    await signOut(auth)
+    await signOut(auth);
     // ✅ แก้ไข: เมื่อ Logout ให้กลับไปหน้า Guest Dashboard (หน้าแรก)
-    router.push('/')
+    router.push("/");
   } catch (error) {
-    console.error("Logout Error:", error)
+    console.error("Logout Error:", error);
   }
-}
+};
 
 const handleLogin = () => {
-  router.push('/login')
-}
+  router.push("/login");
+};
 
 const refreshPage = () => {
-  window.location.reload()
-}
+  window.location.reload();
+};
 </script>
 
 <template>
@@ -90,15 +90,10 @@ const refreshPage = () => {
       </nav>
 
       <div class="auth-buttons">
-        <button v-if="isLoggedIn" class="action-btn logout" @click="handleLogout">
-          Logout
-        </button>
-        <button v-else class="action-btn login" @click="handleLogin">
-          Login
-        </button>
+        <button v-if="isLoggedIn" class="action-btn logout" @click="handleLogout">Logout</button>
+        <button v-else class="action-btn login" @click="handleLogin">Login</button>
       </div>
     </template>
-
   </aside>
 </template>
 
@@ -112,7 +107,7 @@ const refreshPage = () => {
   display: flex;
   flex-direction: column;
   height: 90vh;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
 /* Logo */
@@ -126,7 +121,9 @@ const refreshPage = () => {
   cursor: pointer;
   transition: opacity 0.2s;
 }
-.logo:hover { opacity: 0.8; }
+.logo:hover {
+  opacity: 0.8;
+}
 
 /* Menu Items */
 .menu-item {
@@ -217,7 +214,11 @@ const refreshPage = () => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

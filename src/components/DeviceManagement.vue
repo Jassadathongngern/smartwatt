@@ -1,117 +1,174 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-// ❌ ลบ Mock Data ทิ้ง
-// import { deviceListMock } from "../data/mockData.js";
-
-// ✅ นำเข้า Firebase
-import { db } from "../firebase";
-import { ref as dbRef, onValue, set, remove, update, off } from "firebase/database";
+import { rtdb as db } from "../firebase";
+import { ref as dbRef, onValue, set, remove, update, push, off } from "firebase/database";
 
 // --- State ---
-const devices = ref([]); // ✅ เริ่มต้นเป็นอาเรย์ว่าง รอรับข้อมูลจริง
+const devices = ref([]);
+const buildingConfig = ref({});
 const searchQuery = ref("");
 const filterStatus = ref("All");
 const filterFloor = ref("All");
 
-// --- Modal State (Edit Rate) ---
+// --- Modal State ---
 const isModalOpen = ref(false);
+const isAddModalOpen = ref(false);
+const isDeleteModalOpen = ref(false);
+
 const selectedDevice = ref(null);
+const deviceToDelete = ref(null);
+
+// State สำหรับแก้ไข
+const tempName = ref("");
 const tempRate = ref("");
 const ratePresets = [1, 5, 10, 15, 30, 60];
 
-// --- Modal State (Add Device) ---
-const isAddModalOpen = ref(false);
+// Form for Add Device
 const newDeviceForm = ref({
   name: "",
-  id: "",
   devEui: "",
-  room: "",
-  floor: "1",
   type: "Meter",
+  status: "Active",
   sendRate: 5,
-  installDate: "",
+  installDate: new Date().toISOString().split("T")[0],
   description: "",
 });
 
-// --- ✅ Real-time Listener (หัวใจสำคัญ) ---
+// --- Firebase References ---
 const devicesRef = dbRef(db, "devices");
+const configRef = dbRef(db, "building_configs");
 
+// --- 1. Fetch Data ---
 onMounted(() => {
-  // ดึงข้อมูลจาก Firebase ทันทีที่มีการเปลี่ยนแปลง
   onValue(devicesRef, (snapshot) => {
     const data = snapshot.val();
-    const loadedDevices = [];
-
     if (data) {
-      // แปลง Object ของ Firebase ให้เป็น Array เพื่อวนลูปแสดงผล
-      for (const key in data) {
-        loadedDevices.push({
-          id: key, // ใช้ Key ของ Firebase เป็น ID (หรือใช้ ID ที่เราตั้งเอง)
+      devices.value = Object.keys(data)
+        .map((key) => ({
+          id: key,
           ...data[key],
-        });
-      }
-      // เรียงลำดับเอาตัวใหม่ล่าสุดขึ้นก่อน (ถ้าต้องการ)
-      devices.value = loadedDevices.reverse();
+        }))
+        .reverse();
     } else {
       devices.value = [];
     }
   });
-});
 
-onUnmounted(() => {
-  // ปิดการเชื่อมต่อเมื่อเปลี่ยนหน้า (ประหยัดแรม)
-  off(devicesRef);
-});
-
-// --- Logic Filter (เหมือนเดิม) ---
-const filteredDevices = computed(() => {
-  return devices.value.filter((dev) => {
-    const matchSearch =
-      dev.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      dev.room.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      dev.id.toLowerCase().includes(searchQuery.value.toLowerCase());
-
-    const matchStatus = filterStatus.value === "All" || dev.status === filterStatus.value;
-    const matchFloor = filterFloor.value === "All" || dev.floor === filterFloor.value;
-
-    return matchSearch && matchStatus && matchFloor;
+  onValue(configRef, (snapshot) => {
+    buildingConfig.value = snapshot.val() || {};
   });
 });
 
-// --- Actions: Edit Rate (Update) ---
+onUnmounted(() => {
+  off(devicesRef);
+  off(configRef);
+});
+
+// --- Helper: Find Room ---
+const getDeviceLocation = (deviceId) => {
+  if (!buildingConfig.value) return { room: "Unknown", floor: "-" };
+
+  for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
+    if (floorData.rooms) {
+      for (const [roomName, roomData] of Object.entries(floorData.rooms)) {
+        if (roomData.deviceId === deviceId) {
+          return {
+            room: roomName,
+            floor: floorKey.replace("floor_", ""),
+          };
+        }
+      }
+    }
+  }
+  return { room: "Unassigned", floor: "-" };
+};
+
+// --- 2. Filter Logic ---
+const filteredDevices = computed(() => {
+  return devices.value
+    .map((dev) => {
+      const location = getDeviceLocation(dev.id);
+      return { ...dev, roomName: location.room, floorNum: location.floor };
+    })
+    .filter((dev) => {
+      const name = (dev.name || "").toLowerCase();
+      const room = (dev.roomName || "").toLowerCase();
+      const devId = (dev.id || "").toLowerCase();
+      const search = searchQuery.value.toLowerCase();
+
+      const matchSearch = name.includes(search) || room.includes(search) || devId.includes(search);
+      const matchStatus = filterStatus.value === "All" || dev.status === filterStatus.value;
+      const matchFloor = filterFloor.value === "All" || dev.floorNum === filterFloor.value;
+
+      return matchSearch && matchStatus && matchFloor;
+    });
+});
+
+// --- Actions: Edit Config (Name & Rate) ---
 const openEditModal = (device) => {
   selectedDevice.value = device;
-  tempRate.value = parseInt(device.sendRate.toString().replace(" min", ""));
+  tempName.value = device.name || "";
+  tempRate.value = device.sendRate ? parseInt(device.sendRate.toString().replace(" min", "")) : 5;
   isModalOpen.value = true;
 };
 
-const saveRate = async () => {
+// ✅ ฟังก์ชันบันทึกการตั้งค่า (พร้อมระบบกู้คืนชื่อ)
+const saveConfig = async () => {
+  // 1. ตรวจสอบชื่อ: ถ้าว่าง ให้เอา defaultName หรือชื่อเดิมมาใช้ (Auto-Recovery)
+  const nameToSave =
+    tempName.value.trim() === ""
+      ? selectedDevice.value.defaultName || selectedDevice.value.name || "Unknown Device"
+      : tempName.value;
+
   if (selectedDevice.value && tempRate.value) {
     try {
-      // ✅ อัปเดตข้อมูลไปที่ Firebase จริงๆ
       await update(dbRef(db, `devices/${selectedDevice.value.id}`), {
+        name: nameToSave,
+        // ถ้าอุปกรณ์เก่าไม่มี defaultName ให้เติมเข้าไปด้วยเลย
+        defaultName: selectedDevice.value.defaultName || nameToSave,
         sendRate: tempRate.value + " min",
+        last_update: Date.now(),
       });
-
       isModalOpen.value = false;
-      // ไม่ต้องแก้ devices.value เอง เพราะ onValue จะทำงานให้อัตโนมัติ
-      alert("อัปเดตการตั้งค่าเรียบร้อย!");
     } catch (error) {
-      console.error(error);
-      alert("เกิดข้อผิดพลาดในการบันทึก");
+      alert("Error: " + error.message);
     }
+  } else {
+    alert("กรุณากรอกข้อมูลให้ครบถ้วน");
   }
 };
 
-// --- Actions: Add Device (Create) ---
+// ✅ ฟังก์ชันสั่ง Sleep
+const orderSleep = async () => {
+  if (!selectedDevice.value) return;
+
+  if (
+    !confirm(
+      `ต้องการสั่งให้ ${tempName.value || selectedDevice.value.name} เข้าโหมด Sleep ใช่หรือไม่?`,
+    )
+  )
+    return;
+
+  try {
+    await update(dbRef(db, `devices/${selectedDevice.value.id}`), {
+      pending_command: "sleep",
+      status: "Pending Sleep",
+      last_update: Date.now(),
+    });
+
+    isModalOpen.value = false;
+  } catch (error) {
+    alert("Error sending sleep command: " + error.message);
+  }
+};
+
+// --- Actions: Add Device ---
 const openAddModal = () => {
   newDeviceForm.value = {
     name: "",
-    id: `DEV-${Math.floor(1000 + Math.random() * 9000)}`, // สุ่มเลข 4 หลัก
     devEui: "",
-    room: "",
-    floor: "1",
     type: "Meter",
+    status: "Active",
     sendRate: 5,
     installDate: new Date().toISOString().split("T")[0],
     description: "",
@@ -120,60 +177,51 @@ const openAddModal = () => {
 };
 
 const handleAddDevice = async () => {
-  if (!newDeviceForm.value.name || !newDeviceForm.value.room) {
-    alert("กรุณากรอกชื่ออุปกรณ์และห้องให้ครบถ้วน");
+  if (!newDeviceForm.value.name) {
+    alert("กรุณากรอกชื่ออุปกรณ์");
     return;
   }
 
-  const deviceId = newDeviceForm.value.id; // ใช้ ID ที่สุ่มมาเป็น Key หลัก
-
-  const newDev = {
-    id: deviceId, // เก็บ ID ไว้ใน Object ด้วย
-    devEui: newDeviceForm.value.devEui || "-",
+  const payload = {
     name: newDeviceForm.value.name,
-    room: newDeviceForm.value.room,
-    floor: newDeviceForm.value.floor,
+    defaultName: newDeviceForm.value.name, // ✅ เก็บชื่อตั้งต้นไว้ (กันหาย)
+    devEui: newDeviceForm.value.devEui || "-",
     type: newDeviceForm.value.type,
-    battery: 100, // ค่าเริ่มต้น
-    status: "Offline", // เริ่มต้นเป็น Offline จนกว่าจะมีข้อมูลเข้า
+    status: "Active",
+    battery: 100,
     sendRate: newDeviceForm.value.sendRate + " min",
-    lastUpdate: "-",
     installDate: newDeviceForm.value.installDate,
     description: newDeviceForm.value.description,
-
-    // เตรียมที่ว่างสำหรับค่า Sensor (Optional)
-    current_values: {
-      power: 0,
-      voltage: 0,
-      temp: 0,
-    },
+    last_update: Date.now(),
   };
 
   try {
-    // ✅ บันทึกลง Firebase (ใช้ set เพื่อระบุ ID เอง)
-    await set(dbRef(db, `devices/${deviceId}`), newDev);
-
+    await push(devicesRef, payload);
     isAddModalOpen.value = false;
-    alert("เพิ่มอุปกรณ์ลงฐานข้อมูลเรียบร้อย!");
   } catch (error) {
-    console.error(error);
-    alert("ไม่สามารถเพิ่มอุปกรณ์ได้: " + error.message);
+    alert("Error: " + error.message);
   }
 };
 
-// --- Actions: Delete Device (Delete) ---
-const handleDelete = async (id) => {
-  if (confirm(`ยืนยันการลบอุปกรณ์ ${id} ? ข้อมูลประวัติอาจหายไปด้วย`)) {
+// --- Actions: Delete ---
+const openDeleteModal = (id) => {
+  deviceToDelete.value = id;
+  isDeleteModalOpen.value = true;
+};
+
+const confirmDelete = async () => {
+  if (deviceToDelete.value) {
     try {
-      // ✅ ลบจาก Firebase จริงๆ
-      await remove(dbRef(db, `devices/${id}`));
-      // alert("ลบเรียบร้อย"); // ไม่ต้อง alert ก็ได้เพราะเห็นผลทันที
+      await remove(dbRef(db, `devices/${deviceToDelete.value}`));
+      isDeleteModalOpen.value = false;
+      deviceToDelete.value = null;
     } catch (error) {
-      alert("ลบไม่สำเร็จ: " + error.message);
+      alert("Error: " + error.message);
     }
   }
 };
 
+// Helper Colors
 const getBatteryColor = (level) => {
   if (level > 50) return "#198754";
   if (level > 20) return "#ffc107";
@@ -192,7 +240,7 @@ const getBatteryColor = (level) => {
       <input
         v-model="searchQuery"
         type="text"
-        placeholder="Search Device Name, ID, or Room..."
+        placeholder="Search Name, ID, or Room..."
         class="control-input search"
       />
       <select v-model="filterFloor" class="control-input">
@@ -203,8 +251,9 @@ const getBatteryColor = (level) => {
       </select>
       <select v-model="filterStatus" class="control-input">
         <option value="All">All Status</option>
-        <option value="Online">Online</option>
-        <option value="Offline">Offline</option>
+        <option value="Active">Active</option>
+        <option value="Inactive">Inactive</option>
+        <option value="Maintenance">Maintenance</option>
       </select>
     </div>
 
@@ -214,7 +263,7 @@ const getBatteryColor = (level) => {
           <tr>
             <th>Device Name</th>
             <th>DevEUI / S/N</th>
-            <th>Location</th>
+            <th>Location (Auto)</th>
             <th>Type</th>
             <th>Battery</th>
             <th>Status</th>
@@ -226,7 +275,7 @@ const getBatteryColor = (level) => {
           <tr v-for="dev in filteredDevices" :key="dev.id">
             <td class="font-bold text-gray-700">
               {{ dev.name }}
-              <div class="text-xs text-gray-400">{{ dev.id }}</div>
+              <div class="text-xs text-gray-400 font-mono">{{ dev.id }}</div>
             </td>
 
             <td class="font-mono text-xs text-gray-600">
@@ -234,7 +283,10 @@ const getBatteryColor = (level) => {
             </td>
 
             <td>
-              <span class="location-badge">📍 {{ dev.room }} (Fl.{{ dev.floor }})</span>
+              <span v-if="dev.roomName !== 'Unassigned'" class="location-badge">
+                📍 {{ dev.roomName }} (Fl.{{ dev.floorNum }})
+              </span>
+              <span v-else class="text-gray-400 text-sm italic">- Unassigned -</span>
             </td>
 
             <td>{{ dev.type }}</td>
@@ -244,16 +296,23 @@ const getBatteryColor = (level) => {
                 <div class="battery-icon">
                   <div
                     class="battery-level"
-                    :style="{ width: dev.battery + '%', background: getBatteryColor(dev.battery) }"
+                    :style="{
+                      width: (dev.battery || 0) + '%',
+                      background: getBatteryColor(dev.battery || 0),
+                    }"
                   ></div>
                 </div>
-                <span :style="{ color: getBatteryColor(dev.battery) }">{{ dev.battery }}%</span>
-                <span v-if="dev.battery <= 20" title="Low Battery" class="alert-icon">⚠️</span>
+                <span :style="{ color: getBatteryColor(dev.battery || 0) }"
+                  >{{ dev.battery || 0 }}%</span
+                >
               </div>
             </td>
 
             <td>
-              <span class="status-dot" :class="dev.status.toLowerCase()"></span>
+              <span
+                class="status-dot"
+                :class="(dev.status || '').toLowerCase().replace(' ', '-')"
+              ></span>
               {{ dev.status }}
             </td>
 
@@ -265,15 +324,14 @@ const getBatteryColor = (level) => {
               <button class="btn-action settings" @click="openEditModal(dev)" title="Config">
                 ⚙️
               </button>
-              <button class="btn-action delete" @click="handleDelete(dev.id)" title="Delete">
+              <button class="btn-action delete" @click="openDeleteModal(dev.id)" title="Delete">
                 🗑
               </button>
             </td>
           </tr>
           <tr v-if="filteredDevices.length === 0">
             <td colspan="8" class="text-center py-4 text-gray-500">
-              <span v-if="devices.length === 0">Loading devices... or No data found.</span>
-              <span v-else>No matching devices found.</span>
+              No devices found matching your search.
             </td>
           </tr>
         </tbody>
@@ -284,18 +342,25 @@ const getBatteryColor = (level) => {
       <div v-if="isModalOpen" class="modal-overlay" @click.self="isModalOpen = false">
         <div class="modal-content">
           <div class="modal-header">
-            <h3>⚙️ Configure Device</h3>
+            <h3>⚙️ Device Configuration</h3>
             <button class="close-btn" @click="isModalOpen = false">×</button>
           </div>
           <div class="modal-body">
-            <p class="device-label">
-              อุปกรณ์: <strong>{{ selectedDevice?.name }}</strong>
-            </p>
-            <div class="input-group">
-              <label>LoRa Send Rate (นาที)</label>
-              <input v-model="tempRate" type="number" min="1" class="modal-input" />
+            <div class="input-group mb-3">
+              <label>Device Name</label>
+              <input
+                v-model="tempName"
+                type="text"
+                class="modal-input text-left"
+                placeholder="Enter name or leave blank for default"
+              />
             </div>
-            <div class="preset-section">
+
+            <div class="input-group mb-3">
+              <label>LoRa Send Rate (Minutes)</label>
+              <div class="flex-row">
+                <input v-model="tempRate" type="number" min="1" class="modal-input" />
+              </div>
               <div class="preset-grid">
                 <button
                   v-for="rate in ratePresets"
@@ -308,10 +373,17 @@ const getBatteryColor = (level) => {
                 </button>
               </div>
             </div>
+
+            <hr class="divider" />
+            <div class="sleep-section">
+              <p class="text-sm text-gray-500 mb-2">Power Management</p>
+              <button class="btn-sleep" @click="orderSleep">💤 Order Sleep Mode</button>
+              <p class="text-xs text-gray-400 mt-1">*Device will sleep after next uplink.</p>
+            </div>
           </div>
           <div class="modal-footer">
-            <button class="btn-cancel" @click="isModalOpen = false">ยกเลิก</button>
-            <button class="btn-save" @click="saveRate">บันทึกการตั้งค่า</button>
+            <button class="btn-cancel" @click="isModalOpen = false">Cancel</button>
+            <button class="btn-save" @click="saveConfig">Save Changes</button>
           </div>
         </div>
       </div>
@@ -328,42 +400,22 @@ const getBatteryColor = (level) => {
           <div class="modal-body">
             <div class="row-2-col mb-3">
               <div class="input-group">
-                <label>Device Name (ชื่อเรียก)</label>
+                <label>Device Name *</label>
                 <input
                   v-model="newDeviceForm.name"
                   type="text"
                   class="form-control"
-                  placeholder="Ex. Meter-01"
+                  placeholder="e.g. Smart Meter 01"
                 />
               </div>
               <div class="input-group">
-                <label>DevEUI / S/N (รหัสเครื่อง)</label>
+                <label>DevEUI / S/N</label>
                 <input
                   v-model="newDeviceForm.devEui"
                   type="text"
                   class="form-control"
-                  placeholder="Ex. A84041..."
+                  placeholder="e.g. A84041..."
                 />
-              </div>
-            </div>
-
-            <div class="row-2-col">
-              <div class="input-group">
-                <label>Room (ห้อง)</label>
-                <input
-                  v-model="newDeviceForm.room"
-                  type="text"
-                  class="form-control"
-                  placeholder="Ex. 16101"
-                />
-              </div>
-              <div class="input-group">
-                <label>Floor (ชั้น)</label>
-                <select v-model="newDeviceForm.floor" class="form-control">
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
               </div>
             </div>
 
@@ -373,49 +425,52 @@ const getBatteryColor = (level) => {
                 <select v-model="newDeviceForm.type" class="form-control">
                   <option value="Meter">Energy Meter</option>
                   <option value="Sensor">Environment Sensor</option>
+                  <option value="Gateway">LoRa Gateway</option>
                 </select>
               </div>
               <div class="input-group">
                 <label>Send Rate (Min)</label>
-                <input
-                  v-model="newDeviceForm.sendRate"
-                  type="number"
-                  class="form-control"
-                  placeholder="5"
-                />
-              </div>
-            </div>
-
-            <div class="row-2-col mt-3">
-              <div class="input-group">
-                <label>Install Date (วันที่ติดตั้ง)</label>
-                <input v-model="newDeviceForm.installDate" type="date" class="form-control" />
-              </div>
-              <div class="input-group">
-                <label>System ID (Auto)</label>
-                <input
-                  v-model="newDeviceForm.id"
-                  type="text"
-                  class="form-control bg-gray-100"
-                  disabled
-                />
+                <input v-model="newDeviceForm.sendRate" type="number" class="form-control" />
               </div>
             </div>
 
             <div class="input-group mt-3">
-              <label>Note / Description (หมายเหตุ)</label>
+              <label>Note / Description</label>
               <textarea
                 v-model="newDeviceForm.description"
                 class="form-control"
-                style="height: 80px; resize: none; padding-top: 8px"
-                placeholder="เช่น ติดตั้งอยู่เหนือตู้แร็ค, เปลี่ยนแบตล่าสุดเมื่อ..."
+                style="height: 80px; resize: none"
               ></textarea>
+            </div>
+            <div class="text-xs text-gray-500 mt-2">
+              * หมายเหตุ: การกำหนด "ห้อง" ให้ไปทำที่เมนูจัดการผังตึก (Building Config)
             </div>
           </div>
 
           <div class="modal-footer">
-            <button class="btn-cancel" @click="isAddModalOpen = false">ยกเลิก</button>
-            <button class="btn-save" @click="handleAddDevice">บันทึกข้อมูล</button>
+            <button class="btn-cancel" @click="isAddModalOpen = false">Cancel</button>
+            <button class="btn-save" @click="handleAddDevice">Add Device</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="fade">
+      <div v-if="isDeleteModalOpen" class="modal-overlay" @click.self="isDeleteModalOpen = false">
+        <div class="modal-content delete-modal">
+          <div class="modal-header">
+            <h3 class="text-danger">⚠️ Confirm Deletion</h3>
+            <button class="close-btn" @click="isDeleteModalOpen = false">×</button>
+          </div>
+          <div class="modal-body text-center">
+            <p class="font-bold text-lg mb-2">ยืนยันการลบอุปกรณ์นี้?</p>
+            <p class="text-gray-500 text-sm">
+              การกระทำนี้ไม่สามารถเรียกคืนได้ ข้อมูลอุปกรณ์จะถูกลบออกจากระบบถาวร
+            </p>
+          </div>
+          <div class="modal-footer justify-center">
+            <button class="btn-cancel" @click="isDeleteModalOpen = false">ยกเลิก</button>
+            <button class="btn-delete-confirm" @click="confirmDelete">ยืนยันการลบ</button>
           </div>
         </div>
       </div>
@@ -424,7 +479,7 @@ const getBatteryColor = (level) => {
 </template>
 
 <style scoped>
-/* --- Page Layout --- */
+/* CSS */
 .device-page {
   padding: 20px;
   background-color: #f8f9fa;
@@ -438,27 +493,24 @@ const getBatteryColor = (level) => {
   margin-bottom: 20px;
 }
 .btn-add {
-  background: #212529; /* สีดำ (เทาเข้มเกือบดำ) ดูหรู */
+  background: #212529;
   color: white;
   border: none;
   padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15); /* เงาเข้มขึ้นนิดนึง */
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
   transition: all 0.2s;
   display: flex;
   align-items: center;
   gap: 5px;
 }
-
 .btn-add:hover {
-  background: #000000; /* ดำสนิทเมื่อเอาเมาส์ชี้ */
-  transform: translateY(-2px); /* ลอยขึ้นนิดนึง */
+  background: #000000;
+  transform: translateY(-2px);
   box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
 }
-
-/* --- Controls --- */
 .controls-bar {
   display: flex;
   gap: 10px;
@@ -471,15 +523,10 @@ const getBatteryColor = (level) => {
   outline: none;
   background: white;
 }
-.control-input:focus {
-  border-color: #0d6efd;
-}
 .search {
   flex: 1;
   max-width: 300px;
 }
-
-/* --- Table --- */
 .table-container {
   background: white;
   border-radius: 8px;
@@ -491,7 +538,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 900px;
-} /* เพิ่ม min-width ให้ตารางไม่เบียด */
+}
 th {
   background: #f8f9fa;
   text-align: left;
@@ -513,8 +560,8 @@ td {
   font-weight: bold;
 }
 .font-mono {
-  font-family: "Courier New", Courier, monospace;
-} /* สำหรับ DevEUI */
+  font-family: monospace;
+}
 .text-gray-700 {
   color: #343a40;
 }
@@ -527,8 +574,6 @@ td {
 .text-sm {
   font-size: 0.85rem;
 }
-
-/* Badges & Icons */
 .location-badge {
   background: #e9ecef;
   padding: 4px 10px;
@@ -545,13 +590,24 @@ td {
   display: inline-block;
   margin-right: 6px;
 }
-.status-dot.online {
+.status-dot.active {
   background-color: #198754;
   box-shadow: 0 0 4px #198754;
 }
-.status-dot.offline {
+.status-dot.pending-sleep {
+  background-color: #fd7e14;
+  animation: pulse 2s infinite;
+}
+.status-dot.sleeping {
+  background-color: #6f42c1;
+}
+.status-dot.inactive {
   background-color: #dc3545;
 }
+.status-dot.maintenance {
+  background-color: #ffc107;
+}
+
 .battery-wrapper {
   display: flex;
   align-items: center;
@@ -581,13 +637,6 @@ td {
   height: 100%;
   transition: width 0.3s;
 }
-.alert-icon {
-  font-size: 1rem;
-  animation: pulse 1s infinite;
-  cursor: help;
-}
-
-/* Actions */
 .btn-action {
   border: none;
   background: none;
@@ -608,8 +657,6 @@ td {
 .delete {
   color: #dc3545;
 }
-
-/* --- MODAL STYLES --- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -640,12 +687,6 @@ td {
   justify-content: space-between;
   align-items: center;
 }
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: #333;
-  font-weight: 700;
-}
 .close-btn {
   background: none;
   border: none;
@@ -666,8 +707,6 @@ td {
   justify-content: flex-end;
   gap: 10px;
 }
-
-/* ✅ Form Styles (Unified) */
 .input-group label {
   display: block;
   margin-bottom: 6px;
@@ -675,7 +714,6 @@ td {
   font-size: 0.9rem;
   color: #444;
 }
-
 .form-control {
   width: 100%;
   height: 42px;
@@ -683,24 +721,8 @@ td {
   border: 1px solid #ced4da;
   border-radius: 6px;
   font-size: 1rem;
-  transition: border-color 0.2s;
   box-sizing: border-box;
-  text-align: left;
-  background-color: white;
-  font-family: inherit;
 }
-.form-control:focus {
-  outline: none;
-  border-color: #0d6efd;
-  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
-}
-.form-control.bg-gray-100 {
-  background-color: #f8f9fa;
-  color: #6c757d;
-  cursor: not-allowed;
-}
-
-/* Modal Input (Small for Edit Rate) */
 .modal-input {
   width: 100%;
   padding: 10px 12px;
@@ -711,11 +733,9 @@ td {
   text-align: center;
   height: 45px;
 }
-.modal-input:focus {
-  outline: none;
-  border-color: #0d6efd;
+.modal-input.text-left {
+  text-align: left;
 }
-
 .row-2-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -728,7 +748,6 @@ td {
 .mt-3 {
   margin-top: 15px;
 }
-
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -745,15 +764,32 @@ td {
   font-size: 0.9rem;
   transition: all 0.2s;
 }
-.preset-btn:hover {
-  background: #f8f9fa;
-  border-color: #adb5bd;
-}
 .preset-btn.active {
   background: #e7f1ff;
   border-color: #0d6efd;
   color: #0d6efd;
   font-weight: bold;
+}
+
+/* ปุ่ม Sleep */
+.btn-sleep {
+  width: 100%;
+  background: #6610f2;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-sleep:hover {
+  background: #520dc2;
+}
+.divider {
+  border: 0;
+  border-top: 1px solid #eee;
+  margin: 20px 0;
 }
 
 .btn-cancel {
@@ -764,10 +800,6 @@ td {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  transition: background 0.2s;
-}
-.btn-cancel:hover {
-  background: #dee2e6;
 }
 .btn-save {
   background: #0d6efd;
@@ -777,10 +809,30 @@ td {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
+}
+
+.delete-modal {
+  max-width: 400px;
+}
+.text-danger {
+  color: #dc3545;
+  font-weight: 700;
+}
+.btn-delete-confirm {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
   transition: background 0.2s;
 }
-.btn-save:hover {
-  background: #0b5ed7;
+.btn-delete-confirm:hover {
+  background: #bb2d3b;
+}
+.justify-center {
+  justify-content: center !important;
 }
 
 @keyframes slideUp {

@@ -15,7 +15,6 @@ const {
   temperature,
   humidity,
   toggleFloorExpand,
-  // ✅ เพิ่มบรรทัดนี้: รับค่าที่ขาดหายไป
   dailyEnergy,
   cost,
   totalUsage,

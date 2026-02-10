@@ -1,61 +1,61 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { getDatabase, ref as dbRef, onValue, update, remove } from 'firebase/database'
+import { ref, onMounted } from "vue";
+import { getDatabase, ref as dbRef, onValue, update, remove } from "firebase/database";
 
-const db = getDatabase()
-const users = ref([])
-const loading = ref(true)
+const db = getDatabase();
+const users = ref([]);
+const loading = ref(true);
 
 // --- ดึงข้อมูล Users ---
 onMounted(() => {
-  const usersRef = dbRef(db, 'users')
+  const usersRef = dbRef(db, "users");
   onValue(usersRef, (snapshot) => {
-    const data = snapshot.val()
+    const data = snapshot.val();
     if (data) {
       // แปลง Object เป็น Array เพื่อมาวนลูปแสดงผล
-      users.value = Object.keys(data).map(key => ({
+      users.value = Object.keys(data).map((key) => ({
         id: key,
-        ...data[key]
-      }))
+        ...data[key],
+      }));
     } else {
-      users.value = []
+      users.value = [];
     }
-    loading.value = false
-  })
-})
+    loading.value = false;
+  });
+});
 
 // --- ฟังก์ชันเปลี่ยนสิทธิ์ (Admin/User) ---
 const toggleRole = async (user) => {
   // ถ้าเป็น 1 (Admin) ให้เปลี่ยนเป็น 2 (User), ถ้าเป็น 2 ให้เป็น 1
-  const newRole = user.role_id == 1 ? 2 : 1
-  const newRoleName = newRole == 1 ? "Administrator" : "User"
+  const newRole = user.role_id == 1 ? 2 : 1;
+  const newRoleName = newRole == 1 ? "Administrator" : "User";
 
-  if(confirm(`คุณต้องการเปลี่ยนสิทธิ์ของ "${user.username}" เป็น "${newRoleName}" ใช่หรือไม่?`)) {
+  if (confirm(`คุณต้องการเปลี่ยนสิทธิ์ของ "${user.username}" เป็น "${newRoleName}" ใช่หรือไม่?`)) {
     try {
       // อัปเดตค่า role_id ใน Firebase
       await update(dbRef(db, `users/${user.id}`), {
-        role_id: newRole
-      })
-      alert("อัปเดตสิทธิ์เรียบร้อยแล้ว!")
+        role_id: newRole,
+      });
+      alert("อัปเดตสิทธิ์เรียบร้อยแล้ว!");
     } catch (error) {
-      console.error("Error updating role:", error)
-      alert("เกิดข้อผิดพลาดในการอัปเดต")
+      console.error("Error updating role:", error);
+      alert("เกิดข้อผิดพลาดในการอัปเดต");
     }
   }
-}
+};
 
 // --- 3. ฟังก์ชันลบผู้ใช้ ---
 const deleteUser = async (userId) => {
-  if(confirm("⚠️ คำเตือน: คุณแน่ใจหรือไม่ที่จะลบผู้ใช้นี้ออกจากระบบ?")) {
+  if (confirm("⚠️ คำเตือน: คุณแน่ใจหรือไม่ที่จะลบผู้ใช้นี้ออกจากระบบ?")) {
     try {
-      await remove(dbRef(db, `users/${userId}`))
-      alert("ลบผู้ใช้เรียบร้อยแล้ว")
+      await remove(dbRef(db, `users/${userId}`));
+      alert("ลบผู้ใช้เรียบร้อยแล้ว");
     } catch (error) {
-      console.error("Error deleting user:", error)
-      alert("เกิดข้อผิดพลาดในการลบ")
+      console.error("Error deleting user:", error);
+      alert("เกิดข้อผิดพลาดในการลบ");
     }
   }
-}
+};
 </script>
 
 <template>
@@ -70,9 +70,7 @@ const deleteUser = async (userId) => {
       </div>
     </div>
 
-    <div v-if="loading" class="loading-box">
-      กำลังโหลดข้อมูล...
-    </div>
+    <div v-if="loading" class="loading-box">กำลังโหลดข้อมูล...</div>
 
     <div v-else class="table-card">
       <div class="table-responsive">
@@ -95,11 +93,8 @@ const deleteUser = async (userId) => {
               </td>
               <td class="text-gray-600">{{ user.email }}</td>
               <td>
-                <span
-                  class="role-badge"
-                  :class="user.role_id == 1 ? 'admin' : 'user'"
-                >
-                  {{ user.role_id == 1 ? 'ADMIN' : 'USER' }}
+                <span class="role-badge" :class="user.role_id == 1 ? 'admin' : 'user'">
+                  {{ user.role_id == 1 ? "ADMIN" : "USER" }}
                 </span>
               </td>
               <td>
@@ -109,12 +104,10 @@ const deleteUser = async (userId) => {
                     class="btn-action btn-edit"
                     :title="user.role_id == 1 ? 'Demote to User' : 'Promote to Admin'"
                   >
-                    {{ user.role_id == 1 ? '⬇️ ลดเป็น User' : '⬆️ ตั้งเป็น Admin' }}
+                    {{ user.role_id == 1 ? "⬇️ ลดเป็น User" : "⬆️ ตั้งเป็น Admin" }}
                   </button>
 
-                  <button @click="deleteUser(user.id)" class="btn-action btn-delete">
-                    ลบ
-                  </button>
+                  <button @click="deleteUser(user.id)" class="btn-action btn-delete">ลบ</button>
                 </div>
               </td>
             </tr>
@@ -130,7 +123,7 @@ const deleteUser = async (userId) => {
   padding: 30px;
   background-color: #f3f4f6;
   min-height: 100vh;
-  font-family: 'Inter', sans-serif;
+  font-family: "Inter", sans-serif;
 }
 
 .header-row {
@@ -145,14 +138,14 @@ const deleteUser = async (userId) => {
   padding: 8px 16px;
   border-radius: 20px;
   font-size: 0.9rem;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   color: #555;
 }
 
 .table-card {
   background: white;
   border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
   overflow: hidden;
   border: 1px solid #e5e7eb;
 }
@@ -185,8 +178,12 @@ td {
   font-size: 0.95rem;
 }
 
-tr:last-child td { border-bottom: none; }
-tr:hover { background-color: #f9fafb; }
+tr:last-child td {
+  border-bottom: none;
+}
+tr:hover {
+  background-color: #f9fafb;
+}
 
 /* User Info */
 .user-info {

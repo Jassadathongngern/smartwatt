@@ -1,97 +1,101 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { auth, db } from '../firebase'
-import { signInWithEmailAndPassword } from 'firebase/auth'
-import { ref as dbRef, get, update } from 'firebase/database'
+import { ref } from "vue";
+import { useRouter } from "vue-router";
 
-const router = useRouter()
+// ✅ แก้ไข Import: ดึง auth มาใช้ และเปลี่ยน rtdb ให้เป็น db (เพื่อให้โค้ดข้างล่างใช้งานได้)
+import { auth, rtdb as db } from "../firebase";
+
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { ref as dbRef, get, update } from "firebase/database";
+
+const router = useRouter();
 
 // --- Form State ---
-const email = ref('')
-const password = ref('')
-const errorMsg = ref('')
+const email = ref("");
+const password = ref("");
+const errorMsg = ref("");
 
 // --- UI State ---
-const showPassword = ref(false)
-const isLoading = ref(false)
+const showPassword = ref(false);
+const isLoading = ref(false);
 
 // --- Popup State ---
-const showSuccessModal = ref(false)
-const targetRoute = ref('/')
+const showSuccessModal = ref(false);
+const targetRoute = ref("/");
 
 // ฟังก์ชันหลังจากกด Enter ใน Popup สำเร็จ
 const proceedToDashboard = () => {
-  showSuccessModal.value = false
-  router.push(targetRoute.value)
-}
+  showSuccessModal.value = false;
+  router.push(targetRoute.value);
+};
 
-// ✅ ฟังก์ชันปุ่ม Back (กลับไปหน้า Guest Dashboard เสมอถ้ายังไม่ล็อกอิน)
+// ✅ ฟังก์ชันปุ่ม Back
 const handleBack = async () => {
-  const currentUser = auth.currentUser
+  const currentUser = auth.currentUser; // ตอนนี้เรียกใช้ auth ได้แล้ว ไม่ Error แน่นอน
 
   if (currentUser) {
     // กรณีมี Session ค้างอยู่ ให้เช็ค Role แล้วไป Dashboard
     try {
-      const snapshot = await get(dbRef(db, `users/${currentUser.uid}`))
+      // ใช้ db (ซึ่งคือ rtdb) ในการดึงข้อมูล user
+      const snapshot = await get(dbRef(db, `users/${currentUser.uid}`));
       if (snapshot.exists()) {
-        const role = snapshot.val().role_id
-        router.push(role == 1 ? '/admin/dashboard' : '/')
+        const role = snapshot.val().role_id;
+        router.push(role == 1 ? "/admin/dashboard" : "/");
       } else {
-        router.push('/')
+        router.push("/");
       }
     } catch (e) {
-      router.push('/')
+      router.push("/");
     }
   } else {
     // ✅ กรณีปกติ (ยังไม่ล็อกอิน) ให้กลับไปหน้าแรก (Guest)
-    router.push('/')
+    router.push("/");
   }
-}
+};
 
 // ฟังก์ชัน Login
 const handleLogin = async () => {
-  errorMsg.value = ''
-  isLoading.value = true
+  errorMsg.value = "";
+  isLoading.value = true;
 
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email.value, password.value)
-    const user = userCredential.user
+    // ✅ ใช้ auth ตัวจริงในการล็อกอิน
+    const userCredential = await signInWithEmailAndPassword(auth, email.value, password.value);
+    const user = userCredential.user;
 
-    const userRef = dbRef(db, `users/${user.uid}`)
-    const snapshot = await get(userRef)
+    // ✅ ใช้ db (rtdb) ไปดึงข้อมูล Role
+    const userRef = dbRef(db, `users/${user.uid}`);
+    const snapshot = await get(userRef);
 
     if (snapshot.exists()) {
-      const userData = snapshot.val()
+      const userData = snapshot.val();
 
-      await update(userRef, { last_login: Date.now() })
+      await update(userRef, { last_login: Date.now() });
 
       if (userData.role_id == 1) {
-        targetRoute.value = '/admin/dashboard'
+        targetRoute.value = "/admin/dashboard";
       } else {
-        targetRoute.value = '/'
+        targetRoute.value = "/";
       }
 
-      showSuccessModal.value = true
-
+      showSuccessModal.value = true;
     } else {
-      errorMsg.value = 'ไม่พบข้อมูลผู้ใช้ในระบบ (กรุณาติดต่อ Admin เพื่อสร้างบัญชี)'
-      auth.signOut()
+      errorMsg.value = "ไม่พบข้อมูลผู้ใช้ในระบบ (กรุณาติดต่อ Admin เพื่อสร้างบัญชี)";
+      auth.signOut();
     }
-
   } catch (error) {
-    console.error("Login Error:", error)
-    if (error.code === 'auth/invalid-credential') {
-      errorMsg.value = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
-    } else if (error.code === 'auth/too-many-requests') {
-      errorMsg.value = 'ล็อกอินผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่'
+    console.error("Login Error:", error);
+    if (error.code === "auth/invalid-credential") {
+      errorMsg.value = "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+    } else if (error.code === "auth/too-many-requests") {
+      errorMsg.value = "ล็อกอินผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่";
     } else {
-      errorMsg.value = 'เกิดข้อผิดพลาด: ' + error.message
+      errorMsg.value = "เกิดข้อผิดพลาด: " + error.message;
     }
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 </script>
 
 <template>
@@ -99,15 +103,8 @@ const handleLogin = async () => {
     <div class="login-box">
       <h2>SmartWatt Login</h2>
       <form @submit.prevent="handleLogin">
-
         <div class="input-group">
-          <input
-            v-model="email"
-            type="email"
-            placeholder="Email"
-            required
-            :disabled="isLoading"
-          />
+          <input v-model="email" type="email" placeholder="Email" required :disabled="isLoading" />
         </div>
 
         <div class="input-group password-group">
@@ -120,12 +117,20 @@ const handleLogin = async () => {
           />
 
           <span class="eye-icon" @click="showPassword = !showPassword">
-            <svg v-if="showPassword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              v-if="showPassword"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+              <path
+                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+              ></path>
               <line x1="1" y1="1" x2="23" y2="23"></line>
             </svg>
           </span>
@@ -133,11 +138,7 @@ const handleLogin = async () => {
 
         <p v-if="errorMsg" class="error-text">{{ errorMsg }}</p>
 
-        <button
-          type="submit"
-          class="btn-primary"
-          :disabled="isLoading"
-        >
+        <button type="submit" class="btn-primary" :disabled="isLoading">
           <span v-if="isLoading" class="loader"></span>
           <span v-if="isLoading">Signing in...</span>
           <span v-else>Login</span>
@@ -157,13 +158,12 @@ const handleLogin = async () => {
         <button
           class="btn-primary"
           @click="proceedToDashboard"
-          style="width: auto; padding: 12px 40px; margin: 20px auto 0;"
+          style="width: auto; padding: 12px 40px; margin: 20px auto 0"
         >
           Enter
         </button>
       </div>
     </div>
-
   </div>
 </template>
 
@@ -175,7 +175,7 @@ const handleLogin = async () => {
   align-items: center;
   min-height: 100vh;
   background-color: #f4f6f9;
-  font-family: 'Inter', 'Sarabun', sans-serif;
+  font-family: "Inter", "Sarabun", sans-serif;
 }
 
 /* กล่อง Login */
@@ -303,8 +303,12 @@ button {
 }
 
 @keyframes rotation {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Modal */
@@ -327,7 +331,7 @@ button {
   padding: 40px;
   border-radius: 20px;
   text-align: center;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
   width: 300px;
   animation: popIn 0.3s ease-out;
 }
@@ -352,7 +356,13 @@ button {
 }
 
 @keyframes popIn {
-  from { transform: scale(0.8); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

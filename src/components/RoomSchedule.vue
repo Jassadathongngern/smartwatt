@@ -1,11 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
+
 // ❌ ลบ Mock Data ออก
 // import { scheduleDataMock } from '../data/mockData.js'
 
-// ✅ นามเข้า Firebase
-import { db } from "../firebase";
+// ✅ แก้ไข: ดึง rtdb มาใช้แทน db (Firestore)
+// ใส่ 'as db' เพื่อให้โค้ดข้างล่างทำงานต่อได้เลย ไม่ต้องแก้เยอะ
+import { rtdb as db } from "../firebase";
+
 import { ref as dbRef, onValue, set, remove, update, off, push } from "firebase/database";
 
 const route = useRoute();
@@ -36,6 +39,7 @@ const form = ref({
 });
 
 // --- ✅ Firebase Real-time Connection ---
+// บรรทัดนี้จะทำงานได้ปกติ เพราะ db ตอนนี้คือ rtdb
 const sRef = dbRef(db, "schedules");
 
 onMounted(() => {

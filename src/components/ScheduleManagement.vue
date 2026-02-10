@@ -1,23 +1,35 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-// ❌ ลบ Mock Data ออก
-// import { scheduleDataMock } from '../data/mockData.js'
+import { useRoute } from "vue-router";
 
-// ✅ นำเข้า Firebase
-import { db } from "../firebase";
+// ✅ แก้ไข: ดึง rtdb มาใช้แทน db (Firestore)
+// ใส่ 'as db' เพื่อให้โค้ดข้างล่างที่ใช้ตัวแปร db ทำงานได้ต่อเลย ไม่ต้องไล่แก้
+import { rtdb as db } from "../firebase";
+
 import { ref as dbRef, onValue, set, remove, update, off, push } from "firebase/database";
 
-// --- State ---
-const schedules = ref([]); // เริ่มต้นเป็นอาเรย์ว่าง
+const route = useRoute();
+
+// --- 1. Check Admin Role ---
+const isManager = computed(() => {
+  return route.path.includes("/admin");
+});
+
+// --- 2. State & Data ---
+const schedules = ref([]);
 const searchQuery = ref("");
 const selectedDay = ref("All");
 
-// --- Modal State ---
-const showModal = ref(false);
+// --- 3. Modal State ---
+const showModal = ref(false); // Add/Edit Modal
 const isEditMode = ref(false);
 const editId = ref(null);
 
-// --- Form Data ---
+// ✅ Delete Modal State
+const isDeleteModalOpen = ref(false);
+const deleteId = ref(null);
+
+// Form Data
 const form = ref({
   day: "Monday",
   startTime: "09:00",
@@ -27,14 +39,14 @@ const form = ref({
   status: "Active",
 });
 
-// --- Firebase Logic ---
+// --- Firebase Real-time Connection ---
+// บรรทัดนี้จะทำงานได้ปกติ เพราะ db ตอนนี้คือ rtdb
 const sRef = dbRef(db, "schedules");
 
 onMounted(() => {
   onValue(sRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
-      // แปลง Object เป็น Array
       const loadedSchedules = Object.keys(data).map((key) => ({
         id: key,
         ...data[key],
@@ -50,18 +62,21 @@ onUnmounted(() => {
   off(sRef);
 });
 
-// --- Filter Logic ---
+// --- 4. Filter Logic ---
 const filteredSchedules = computed(() => {
   return schedules.value.filter((item) => {
-    const matchSearch =
-      item.room.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      item.subject.toLowerCase().includes(searchQuery.value.toLowerCase());
+    // ใส่เกราะป้องกัน Error
+    const room = (item.room || "").toLowerCase();
+    const subject = (item.subject || "").toLowerCase();
+    const search = searchQuery.value.toLowerCase();
+
+    const matchSearch = room.includes(search) || subject.includes(search);
     const matchDay = selectedDay.value === "All" || item.day === selectedDay.value;
     return matchSearch && matchDay;
   });
 });
 
-// --- Actions ---
+// --- 5. Actions (Add/Edit Modal) ---
 const openAddModal = () => {
   isEditMode.value = false;
   form.value = {
@@ -78,8 +93,7 @@ const openAddModal = () => {
 const openEditModal = (item) => {
   isEditMode.value = true;
   editId.value = item.id;
-
-  const [start, end] = item.time.split(" - ");
+  const [start, end] = item.time ? item.time.split(" - ") : ["09:00", "12:00"];
 
   form.value = {
     day: item.day,
@@ -92,7 +106,7 @@ const openEditModal = (item) => {
   showModal.value = true;
 };
 
-// ✅ Save to Firebase
+// --- 6. Save Data ---
 const handleSave = async () => {
   const timeString = `${form.value.startTime} - ${form.value.endTime}`;
   const payload = {
@@ -105,23 +119,28 @@ const handleSave = async () => {
 
   try {
     if (isEditMode.value) {
-      // แก้ไข (Update)
       await update(dbRef(db, `schedules/${editId.value}`), payload);
     } else {
-      // เพิ่มใหม่ (Push) - Firebase จะสร้าง ID แปลกๆ ให้เองเพื่อไม่ให้ซ้ำกัน
       await push(sRef, payload);
     }
     showModal.value = false;
   } catch (error) {
-    alert("Error saving schedule: " + error.message);
+    alert("Error: " + error.message);
   }
 };
 
-// ✅ Delete from Firebase
-const handleDelete = async (id) => {
-  if (confirm("Are you sure you want to delete this schedule?")) {
+// --- ✅ 7. Delete Logic (Modal) ---
+const openDeleteModal = (id) => {
+  deleteId.value = id;
+  isDeleteModalOpen.value = true;
+};
+
+const confirmDelete = async () => {
+  if (deleteId.value) {
     try {
-      await remove(dbRef(db, `schedules/${id}`));
+      await remove(dbRef(db, `schedules/${deleteId.value}`));
+      isDeleteModalOpen.value = false;
+      deleteId.value = null;
     } catch (error) {
       alert("Error deleting: " + error.message);
     }
@@ -133,10 +152,10 @@ const handleDelete = async (id) => {
   <div class="schedule-page">
     <div class="header-section">
       <div>
-        <h1 class="text-2xl font-bold">Schedule Management</h1>
-        <p class="text-gray-500">จัดการตารางการใช้งานห้องเรียน</p>
+        <h1 class="text-2xl font-bold">Classroom Schedule</h1>
+        <p class="text-gray-500">จัดการตารางเรียน (Admin Mode)</p>
       </div>
-      <button class="btn-add" @click="openAddModal">+ Add New Class</button>
+      <button class="btn-add" @click="openAddModal">+ Add Schedule</button>
     </div>
 
     <div class="controls-bar">
@@ -167,13 +186,15 @@ const handleDelete = async (id) => {
             <th>Room</th>
             <th>Subject</th>
             <th>Status</th>
-            <th class="text-center">Actions</th>
+            <th class="text-center" width="100">Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in filteredSchedules" :key="item.id">
             <td>
-              <span class="day-badge" :class="item.day.toLowerCase()">{{ item.day }}</span>
+              <span class="day-badge" :class="item.day ? item.day.toLowerCase() : ''">{{
+                item.day
+              }}</span>
             </td>
             <td class="font-mono">{{ item.time }}</td>
             <td class="font-bold text-blue-600">{{ item.room }}</td>
@@ -183,6 +204,7 @@ const handleDelete = async (id) => {
                 {{ item.status }}
               </span>
             </td>
+
             <td class="text-center action-col">
               <button class="icon-btn" @click="openEditModal(item)" title="Edit">
                 <svg
@@ -200,7 +222,7 @@ const handleDelete = async (id) => {
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
               </button>
-              <button class="icon-btn" @click="handleDelete(item.id)" title="Delete">
+              <button class="icon-btn" @click="openDeleteModal(item.id)" title="Delete">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="18"
@@ -258,8 +280,6 @@ const handleDelete = async (id) => {
                 <option>Wednesday</option>
                 <option>Thursday</option>
                 <option>Friday</option>
-                <option>Saturday</option>
-                <option>Sunday</option>
               </select>
             </div>
           </div>
@@ -285,16 +305,33 @@ const handleDelete = async (id) => {
 
           <div class="modal-actions">
             <button type="button" class="btn-cancel" @click="showModal = false">Cancel</button>
-            <button type="submit" class="btn-save">Save Schedule</button>
+            <button type="submit" class="btn-save">Save</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="isDeleteModalOpen" class="modal-overlay">
+      <div class="modal-content delete-modal">
+        <div class="modal-header">
+          <h3 class="text-danger">⚠️ Confirm Deletion</h3>
+          <button class="close-btn" @click="isDeleteModalOpen = false">×</button>
+        </div>
+        <div class="modal-body text-center">
+          <p class="font-bold text-lg mb-2">ยืนยันการลบตารางเรียนนี้?</p>
+          <p class="text-gray-500 text-sm">การกระทำนี้ไม่สามารถเรียกคืนได้</p>
+        </div>
+        <div class="modal-actions justify-center">
+          <button class="btn-cancel" @click="isDeleteModalOpen = false">ยกเลิก</button>
+          <button class="btn-delete-confirm" @click="confirmDelete">ยืนยันการลบ</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Style เดิมของพี่เป๊ะๆ เลยครับ ไม่ได้แก้เลย */
+/* CSS เดิม */
 .schedule-page {
   padding: 20px;
   background-color: #f8f9fa;
@@ -396,23 +433,16 @@ td {
   color: #842029;
 }
 .btn-add {
-  background: #212529;
+  background: #000;
   color: white;
   border: none;
   padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 5px;
 }
 .btn-add:hover {
-  background: #000000;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
+  background: #333;
 }
 .icon-btn {
   border: 1px solid #000;
@@ -529,6 +559,31 @@ td {
 .btn-save:hover {
   background: #0056b3;
 }
+
+/* ✅ Style สำหรับ Delete Modal */
+.delete-modal {
+  max-width: 400px;
+}
+.text-danger {
+  color: #dc3545;
+  font-weight: 700;
+}
+.btn-delete-confirm {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-delete-confirm:hover {
+  background: #bb2d3b;
+}
+.justify-center {
+  justify-content: center !important;
+}
+
 @keyframes slideDown {
   from {
     transform: translateY(-20px);
