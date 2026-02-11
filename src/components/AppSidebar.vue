@@ -106,8 +106,13 @@ const refreshPage = () => {
   box-shadow: 4px 0 10px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
-  height: 90vh;
+  height: 100vh;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  overflow-y: auto; /* Allow scrolling within sidebar if content is tall */
 }
 
 /* Logo */
@@ -166,7 +171,7 @@ const refreshPage = () => {
 /* Auth Buttons */
 .auth-buttons {
   margin-top: auto;
-  padding: 0 20px 20px 20px;
+  padding: 0 20px 40px 20px;
 }
 
 .action-btn {
