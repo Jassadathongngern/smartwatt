@@ -34,7 +34,11 @@ const selectTimeRange = (range) => {
   timeRange.value = range;
 };
 const selectAllFloors = () => {
-  selectedFloors.value = ["1", "2", "3"];
+  if (selectedFloors.value.length === 3) {
+    selectedFloors.value = [];
+  } else {
+    selectedFloors.value = ["1", "2", "3"];
+  }
 };
 const toggleFloor = (floor) => {
   if (selectedFloors.value.includes(floor)) {
@@ -88,7 +92,7 @@ const toggleFloor = (floor) => {
               v-for="floor in ['1', '2', '3']"
               :key="floor"
               class="tab-btn"
-              :class="{ active: selectedFloors.includes(floor) }"
+              :class="{ active: selectedFloors.includes(floor) && selectedFloors.length !== 3 }"
               @click="toggleFloor(floor)"
             >
               Floor {{ floor }}
@@ -358,19 +362,27 @@ h2 {
   cursor: pointer;
   margin-left: 5px;
   font-size: 0.85rem;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   color: #555;
   font-weight: 500;
+  user-select: none;
 }
 .tab-btn:hover {
+  transform: translateY(-2px);
   background-color: #f8f9fa;
   border-color: #ced4da;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.tab-btn:active {
+  transform: scale(0.95);
 }
 .tab-btn.active {
   background: #0d6efd;
   color: white;
   border-color: #0d6efd;
   font-weight: 600;
+  box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3);
+  transform: translateY(0);
 }
 
 /* Bottom Row */
