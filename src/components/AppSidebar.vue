@@ -13,7 +13,15 @@ import {
   Bell,
   LogIn,
   LogOut,
+  Menu,
+  X,
 } from "lucide-vue-next";
+
+defineProps({
+  isOpen: Boolean,
+});
+
+const emit = defineEmits(["toggle", "close"]);
 
 const router = useRouter();
 const isLoggedIn = ref(false);
@@ -33,8 +41,8 @@ onMounted(() => {
 const handleLogout = async () => {
   try {
     await signOut(auth);
-    // ✅ แก้ไข: เมื่อ Logout ให้กลับไปหน้า Guest Dashboard (หน้าแรก)
     router.push("/");
+    emit("close");
   } catch (error) {
     console.error("Logout Error:", error);
   }
@@ -42,6 +50,7 @@ const handleLogout = async () => {
 
 const handleLogin = () => {
   router.push("/login");
+  emit("close");
 };
 
 const refreshPage = () => {
@@ -50,7 +59,18 @@ const refreshPage = () => {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <!-- Hamburger Button for Mobile -->
+  <button
+    class="mobile-toggle"
+    :class="{ 'is-sidebar-open': isOpen }"
+    @click="$emit('toggle')"
+    aria-label="Toggle Menu"
+  >
+    <Menu v-if="!isOpen" :size="24" />
+    <X v-else :size="24" />
+  </button>
+
+  <aside class="sidebar" :class="{ 'is-open': isOpen }">
     <div class="logo-container" @click="refreshPage" title="Refresh Page">
       <div class="logo-icon">W</div>
       <div class="logo-text">SmartWatt</div>
@@ -66,6 +86,7 @@ const refreshPage = () => {
           :to="isLoggedIn ? '/admin/dashboard' : '/'"
           class="menu-item"
           active-class="active"
+          @click="emit('close')"
         >
           <div class="icon-box">
             <LayoutDashboard :size="16" />
@@ -73,7 +94,7 @@ const refreshPage = () => {
           <span>Dashboard</span>
         </router-link>
 
-        <router-link to="/analytics" class="menu-item" active-class="active">
+        <router-link to="/analytics" class="menu-item" active-class="active" @click="emit('close')">
           <div class="icon-box">
             <BarChart3 :size="16" />
           </div>
@@ -84,6 +105,7 @@ const refreshPage = () => {
           :to="isLoggedIn ? '/admin/room-schedule' : '/room-schedule'"
           class="menu-item"
           active-class="active"
+          @click="emit('close')"
         >
           <div class="icon-box">
             <CalendarClock :size="16" />
@@ -94,28 +116,43 @@ const refreshPage = () => {
         <div v-if="isLoggedIn">
           <p class="admin-tools-header">ADMIN TOOLS</p>
 
-          <router-link to="/devices" class="menu-item" active-class="active">
+          <router-link to="/devices" class="menu-item" active-class="active" @click="emit('close')">
             <div class="icon-box">
               <Cpu :size="16" />
             </div>
             <span>Device Mgmt</span>
           </router-link>
 
-          <router-link to="/schedule" class="menu-item" active-class="active">
+          <router-link
+            to="/schedule"
+            class="menu-item"
+            active-class="active"
+            @click="emit('close')"
+          >
             <div class="icon-box">
               <Timer :size="16" />
             </div>
             <span>Schedule Mgmt</span>
           </router-link>
 
-          <router-link to="/admin/users" class="menu-item" active-class="active">
+          <router-link
+            to="/admin/users"
+            class="menu-item"
+            active-class="active"
+            @click="emit('close')"
+          >
             <div class="icon-box">
               <Users :size="16" />
             </div>
             <span>User Mgmt</span>
           </router-link>
 
-          <router-link to="/notifications" class="menu-item" active-class="active">
+          <router-link
+            to="/notifications"
+            class="menu-item"
+            active-class="active"
+            @click="emit('close')"
+          >
             <div class="icon-box">
               <Bell :size="16" />
             </div>
@@ -158,6 +195,7 @@ const refreshPage = () => {
   left: 0;
   z-index: 100;
   border-right: 1px solid #f0f0f0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Logo Section */
@@ -310,6 +348,63 @@ const refreshPage = () => {
   background-color: #ef4444;
   color: white;
   border-color: #ef4444;
+}
+
+/* Mobile Toggle -> กลายเป็น Sidebar Toggle */
+.mobile-toggle {
+  display: flex; /* โชว์ทุกหน้าจอ */
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  z-index: 110;
+  background: white;
+  border: 1.5px solid #f1f5f9;
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* เมื่อ Sidebar เปิด ให้ปุ่มขยับหลบไปทางขวาแถวๆ ขอบ Sidebar พอดี */
+.mobile-toggle.is-sidebar-open {
+  left: 260px;
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.mobile-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.12);
+}
+
+.mobile-toggle:active {
+  transform: scale(0.9);
+}
+
+/* Responsive Styles */
+.sidebar {
+  transform: translateX(-100%); /* ซ่อนเป็นค่าเริ่มต้นทุกหน้าจอ */
+  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.05);
+}
+
+.sidebar.is-open {
+  transform: translateX(0); /* โชว์เมื่อมี class is-open */
+}
+
+@media (max-width: 1024px) {
+  .mobile-toggle.is-sidebar-open {
+    left: auto;
+    right: 20px; /* บนมือถือให้ปุ่ม X อยู่มุมขวาบนจะได้ไม่บังเมนู */
+    background: white;
+    color: #1e293b;
+    border-color: #f1f5f9;
+  }
 }
 
 /* Spinner */

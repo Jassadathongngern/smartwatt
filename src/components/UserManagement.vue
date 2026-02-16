@@ -111,7 +111,7 @@ const deleteUser = async (userId) => {
                 </div>
               </td>
             </tr>
-           </tbody>
+          </tbody>
         </table>
       </div>
     </div>
@@ -257,5 +257,43 @@ tr:hover {
   text-align: center;
   padding: 40px;
   color: #6b7280;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 15px;
+  }
+
+  .header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .stats-badge {
+    width: 100%;
+    text-align: center;
+  }
+
+  table {
+    min-width: 600px;
+  }
+
+  th,
+  td {
+    padding: 12px;
+    font-size: 0.85rem;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .btn-action {
+    width: 100%;
+    text-align: center;
+  }
 }
 </style>

@@ -365,4 +365,23 @@ button {
     opacity: 1;
   }
 }
+
+/* Responsive Adjustments */
+@media (max-width: 480px) {
+  .login-box {
+    padding: 30px 20px;
+    margin: 20px;
+    border-radius: 12px;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+  }
+
+  .modal-content {
+    width: 85%;
+    padding: 30px 20px;
+  }
+}
 </style>

@@ -430,6 +430,7 @@ const saveSettings = async () => {
 /* Range Slider Styling */
 .range-slider {
   -webkit-appearance: none;
+  appearance: none;
   width: 100%;
   height: 8px;
   background: #e5e7eb;
@@ -556,5 +557,53 @@ const saveSettings = async () => {
 .pop-leave-to {
   opacity: 0;
   transform: scale(0.8) translateY(20px);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 15px;
+  }
+
+  .header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tabs {
+    width: 100%;
+  }
+
+  .tab-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 5px;
+    font-size: 0.9rem;
+  }
+
+  .content-card {
+    padding: 20px 15px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .noti-item {
+    padding: 12px;
+  }
+
+  .noti-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .success-popup {
+    bottom: 20px;
+    right: 20px;
+    left: 20px;
+    justify-content: center;
+  }
 }
 </style>

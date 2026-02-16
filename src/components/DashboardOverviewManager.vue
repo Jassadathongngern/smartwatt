@@ -104,7 +104,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
         </div>
       </div>
 
-      <div style="height: 350px; width: 100%">
+      <div style="height: 350px; width: 100%; min-width: 0">
         <EnergyUsageChart
           :floors="selectedFloors"
           :timeRange="timeRange"
@@ -312,6 +312,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
   background-color: #f8f9fa;
   min-height: 90vh;
   font-family: "Inter", sans-serif;
+  overflow-x: hidden; /* Fix chart not resizing */
 }
 .header-bar {
   display: flex;
@@ -793,5 +794,79 @@ h2 {
 .skeleton-value {
   height: 32px;
   width: 80%;
+}
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .status-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .last-update {
+    margin-left: 0;
+  }
+
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .floor-tabs {
+    display: flex;
+    overflow-x: auto;
+    padding: 5px 0;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+  }
+
+  .tab-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 0;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .stat-card h3 {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-overview {
+    padding: 10px;
+  }
+
+  .full-width-chart {
+    padding: 15px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bottom-row {
+    flex-direction: column;
+  }
+
+  .hierarchy-area {
+    min-width: 100%;
+  }
 }
 </style>

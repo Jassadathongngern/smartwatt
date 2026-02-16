@@ -886,4 +886,71 @@ td {
 .fade-leave-to {
   opacity: 0;
 }
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
+  .header-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .btn-add {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .controls-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .control-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .table-container {
+    overflow-x: auto;
+    margin: 0 -15px;
+    border-radius: 0;
+  }
+
+  table {
+    min-width: 900px; /* Keep table wide enough to be readable */
+  }
+}
+
+@media (max-width: 600px) {
+  .device-page {
+    padding: 15px;
+  }
+
+  .modal-content {
+    width: 95%;
+    margin: 10px;
+    padding: 0; /* Let body handle padding */
+  }
+
+  .modal-body {
+    padding: 20px 15px;
+  }
+
+  .row-2-col {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .preset-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+  }
+
+  .modal-footer button {
+    width: 100%;
+  }
+}
 </style>

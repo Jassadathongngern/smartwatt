@@ -543,4 +543,54 @@ td {
     opacity: 1;
   }
 }
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .header-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .btn-add {
+    width: 100%;
+  }
+
+  .filter-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .control-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .table-container {
+    overflow-x: auto; /* ให้ตารางรูดซ้ายขวาได้ */
+    margin: 0 -15px; /* ขยายให้เต็มขอบจอมือถือ */
+    border-radius: 0;
+  }
+
+  table {
+    min-width: 600px; /* บังคับหน้ากว้างขั้นต่ำเพื่อให้ข้อมูลไม่อัดกัน */
+  }
+
+  th,
+  td {
+    padding: 10px 8px;
+    font-size: 0.85rem;
+  }
+
+  .modal-content {
+    margin: 10px;
+    padding: 15px;
+    max-width: 100%;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
 </style>

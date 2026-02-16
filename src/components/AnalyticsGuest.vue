@@ -78,7 +78,7 @@ const getFloorOfDevice = (deviceId) => {
 
 // Helper: หาว่า Device ID นี้คือห้องอะไร
 const getRoomOfDevice = (deviceId) => {
-  for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
+  for (const floorData of Object.values(buildingConfig.value)) {
     if (floorData.rooms) {
       for (const [rName, rData] of Object.entries(floorData.rooms)) {
         if (rData.deviceId === deviceId) return rName;
@@ -522,6 +522,7 @@ const handleExport = () => {
   background-color: #f0f2f5;
   min-height: 100vh;
   font-family: "Inter", sans-serif;
+  overflow-x: hidden; /* Fix chart layout issues */
 }
 .header-bar {
   display: flex;
@@ -788,5 +789,81 @@ tr:last-child td {
 .tooltip-container:hover .tooltip-box {
   visibility: visible;
   opacity: 1;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
+  .header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .controls {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .control-input {
+    flex: 1;
+    min-width: 140px;
+  }
+
+  .btn-export {
+    width: 100%;
+  }
+
+  .half {
+    min-width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .analytics-page {
+    padding: 15px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+  }
+
+  .kpi-card h3 {
+    font-size: 1.5rem;
+  }
+
+  .chart-section {
+    padding: 15px;
+  }
+
+  .chart-container.large {
+    height: 300px;
+  }
+
+  .chart-container.medium {
+    height: 220px;
+  }
+
+  table {
+    min-width: 800px;
+  }
+}
+
+@media (max-width: 480px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .controls {
+    flex-direction: column;
+  }
+
+  .control-input {
+    width: 100%;
+  }
+
+  .chart-header-row h3 {
+    font-size: 1rem;
+  }
 }
 </style>

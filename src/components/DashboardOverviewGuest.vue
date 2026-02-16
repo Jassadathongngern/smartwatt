@@ -100,7 +100,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
         </div>
       </div>
 
-      <div style="height: 350px; width: 100%">
+      <div style="height: 350px; width: 100%; min-width: 0">
         <!-- ✅ ส่ง allBuildingTotal ไปให้กราฟ -->
         <EnergyUsageChart
           :floors="selectedFloors"
@@ -279,6 +279,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
   background-color: #f8f9fa;
   min-height: 100vh;
   font-family: "Inter", sans-serif;
+  overflow-x: hidden; /* Fix chart not resizing */
 }
 
 /* Header Flex */
@@ -680,6 +681,61 @@ h2 {
   background: #dc3545;
 }
 
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .header-flex {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .floor-tabs {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .stat-card h3 {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .guest-dashboard {
+    padding: 10px;
+  }
+
+  .full-width-chart {
+    padding: 15px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr; /* Stack stats one by one on very small screens */
+  }
+}
+
 .status-legend {
   margin-top: 15px;
   display: flex;
@@ -753,6 +809,18 @@ h2 {
   from {
     opacity: 0;
     transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animations... */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
   to {
     opacity: 1;

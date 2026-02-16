@@ -594,4 +594,62 @@ td {
     opacity: 1;
   }
 }
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .header-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .btn-add {
+    width: 100%;
+  }
+
+  .filter-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .control-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .table-container {
+    overflow-x: auto;
+    margin: 0 -15px;
+    border-radius: 0;
+  }
+
+  table {
+    min-width: 600px;
+  }
+
+  th,
+  td {
+    padding: 10px 8px;
+    font-size: 0.85rem;
+  }
+
+  .modal-content {
+    margin: 10px;
+    padding: 15px;
+    max-width: 100%;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+}
 </style>
