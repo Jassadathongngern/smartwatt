@@ -1,28 +1,26 @@
 import { ref, onMounted, onUnmounted } from "vue";
+// ✅ ดึงมาทั้ง db (Firestore) และ rtdb (Realtime DB)
 import { db, rtdb } from "../firebase";
-import { ref as dbRef, onValue } from "firebase/database";
+import { ref as dbRef, onValue, off } from "firebase/database";
+import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
 
 const DEVICES_PATH = "devices";
 
 export function useBuildingData() {
   const gatewayStatus = ref("Connecting...");
   const lastUpdate = ref("-");
-
-  // ค่าสรุป (Summary)
   const allBuildingTotal = ref(0);
   const dailyEnergy = ref(0);
   const cost = ref(0);
   const totalUsage = ref(0);
 
-  // ค่า Sensor (Global Average/Total)
+  // ค่าสภาพแวดล้อม
   const pm25 = ref(0);
   const temperature = ref(0);
   const humidity = ref(0);
   const voltage = ref(0);
   const current = ref(0);
 
-  // ข้อมูลชั้นและห้อง
-  // ✅ แก้ชื่อ deviceId ให้ตรงกับในรูปเรียบร้อยครับ
   const floorData = ref([
     {
       id: "3",
@@ -30,20 +28,8 @@ export function useBuildingData() {
       status: "online",
       isExpanded: true,
       rooms: [
-        {
-          name: "16301",
-          deviceId: "SmartWatt_Node_POWER_01", // ✅ ตัววัดไฟ (ใส่ตรงนี้)
-          type: "Server Room",
-          power: 0,
-          status: "offline",
-        },
-        {
-          name: "16302",
-          deviceId: "SmartWatt_Node_ENV_01", // ✅ ตัววัดฝุ่น (ใส่ตรงนี้)
-          type: "Classroom",
-          power: 0,
-          status: "offline",
-        },
+        { name: "16301", deviceId: "dev_001", type: "Server Room", power: 0, status: "offline" },
+        { name: "16302", deviceId: "dev_002", type: "Classroom", power: 0, status: "offline" },
         { name: "16303", deviceId: "dev_003", type: "Office", power: 0, status: "offline" },
       ],
     },
@@ -71,100 +57,54 @@ export function useBuildingData() {
     },
   ]);
 
-  onMounted(() => {
-    const deviceRef = dbRef(rtdb, DEVICES_PATH);
+  let unsubFirestore = null;
 
+  onMounted(() => {
+    // 1️⃣ ดึงข้อมูล Devices จาก Realtime DB (ท่อ rtdb)
+    const deviceRef = dbRef(rtdb, DEVICES_PATH);
     onValue(deviceRef, (snapshot) => {
       const allDevices = snapshot.val();
-
       if (allDevices) {
-        gatewayStatus.value = "Active";
-
-        // ตัวแปรสำหรับคำนวณ
-        let grandTotalPower = 0;
-        let grandTotalEnergy = 0;
-
-        let sumCurrent = 0;
-        let sumVoltage = 0;
-        let countVoltage = 0;
-
-        let sumTemp = 0;
-        let countTemp = 0;
-        let sumHum = 0;
-        let sumPM25 = 0;
-        let countEnv = 0;
-
-        let latestTimestamp = 0;
-
+        // Logic คำนวณค่าไฟเดิมของคุณ...
+        let grandTotal = 0;
         floorData.value.forEach((floor) => {
           let floorTotal = 0;
-
           floor.rooms.forEach((room) => {
             const deviceData = allDevices[room.deviceId];
-
             if (deviceData) {
-              // --- 1. ไฟฟ้า ---
-              const p = Number(deviceData.w || deviceData.power || 0);
-              const v = Number(deviceData.voltage || 0);
-              const c = Number(deviceData.current || 0);
-              const e = Number(deviceData.energy || 0);
-
+              const p = Number(deviceData.w || 0);
               room.power = (p / 1000).toFixed(2);
               room.status = "online";
-
               floorTotal += p;
-              grandTotalEnergy += e;
-
-              sumCurrent += c;
-              if (v > 0) {
-                sumVoltage += v;
-                countVoltage++;
-              }
-
-              // --- 2. สภาพแวดล้อม ---
-              const t = Number(deviceData.temperature || 0);
-              const h = Number(deviceData.humidity || 0);
-              const pm = Number(deviceData.pm2_5 || 0);
-
-              if (t > 0 || pm > 0) {
-                sumTemp += t;
-                sumHum += h;
-                sumPM25 += pm;
-                countEnv++;
-              }
-
-              // --- 3. เช็คเวลาล่าสุด ---
-              if (deviceData.last_update > latestTimestamp) {
-                latestTimestamp = deviceData.last_update;
-              }
-            } else {
-              room.status = "offline";
-              room.power = 0;
             }
           });
-
           floor.totalPower = (floorTotal / 1000).toFixed(2);
-          grandTotalPower += floorTotal;
+          grandTotal += floorTotal;
         });
-
-        // --- สรุปผลลัพธ์ทั้งตึก ---
-        allBuildingTotal.value = grandTotalPower;
-        voltage.value = countVoltage > 0 ? (sumVoltage / countVoltage).toFixed(1) : 0;
-        current.value = sumCurrent.toFixed(2);
-
-        temperature.value = countEnv > 0 ? (sumTemp / countEnv).toFixed(1) : 0;
-        humidity.value = countEnv > 0 ? (sumHum / countEnv).toFixed(1) : 0;
-        pm25.value = countEnv > 0 ? (sumPM25 / countEnv).toFixed(1) : 0;
-
-        totalUsage.value = grandTotalEnergy.toFixed(2);
-        dailyEnergy.value = ((grandTotalPower * 24) / 1000).toFixed(2);
+        allBuildingTotal.value = grandTotal;
+        dailyEnergy.value = ((grandTotal * 8) / 1000).toFixed(2);
         cost.value = (dailyEnergy.value * 4.5).toFixed(2);
+      }
+    });
 
-        if (latestTimestamp > 0) {
-          lastUpdate.value = new Date(latestTimestamp).toLocaleTimeString("th-TH");
+    // 2️⃣ ดึงข้อมูล PM2.5/Temp จาก Firestore (ท่อ db)
+    const q = query(collection(db, "measurements"), orderBy("timestamp", "desc"), limit(1));
+    unsubFirestore = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        pm25.value = data.pm2_5 || 0;
+        temperature.value = data.temperature || 0;
+        humidity.value = data.humidity || 0;
+        gatewayStatus.value = "Active";
+        if (data.timestamp) {
+          lastUpdate.value = data.timestamp.toDate().toLocaleTimeString("th-TH");
         }
       }
     });
+  });
+
+  onUnmounted(() => {
+    if (unsubFirestore) unsubFirestore();
   });
 
   return {

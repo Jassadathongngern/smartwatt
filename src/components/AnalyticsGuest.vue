@@ -214,7 +214,7 @@ const reactiveCorrelationData = computed(() => {
     labels: labels.length ? labels : ["No Data"],
     datasets: [
       {
-        label: "Energy (kWh)",
+        label: "Active Power (kW)",
         type: "bar",
         data: powerData.length ? powerData : [0],
         backgroundColor: "rgba(54, 162, 235, 0.6)",
@@ -276,7 +276,7 @@ const mixedChartOptions = {
       type: "linear",
       display: true,
       position: "left",
-      title: { display: true, text: "Energy (kWh)" },
+      title: { display: true, text: "Active Power (kW)" },
     },
     y1: {
       type: "linear",

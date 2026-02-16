@@ -111,7 +111,7 @@ const deleteUser = async (userId) => {
                 </div>
               </td>
             </tr>
-          </tbody>
+           </tbody>
         </table>
       </div>
     </div>

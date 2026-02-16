@@ -132,11 +132,23 @@ const chartOptions = {
   scales: {
     y: {
       beginAtZero: true,
-      title: { display: true, text: "Power (kW)" },
-      suggestedMax: 5, // ให้แกน Y สูงหน่อยเผื่อค่าพุ่ง
+      title: {
+        display: true,
+        text: "Electric Power (kW)",
+        font: { size: 14, weight: "bold" },
+      },
+      suggestedMax: 5,
     },
     x: {
-      ticks: { maxTicksLimit: 10 },
+      title: {
+        display: true,
+        text: "Time",
+        font: { size: 14, weight: "bold" },
+      },
+      ticks: {
+        maxTicksLimit: 10,        
+        maxRotation: 0,
+      },
     },
   },
   plugins: {
