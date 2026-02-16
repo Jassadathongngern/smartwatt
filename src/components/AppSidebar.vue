@@ -3,6 +3,17 @@ import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { auth } from "../firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import {
+  LayoutDashboard,
+  BarChart3,
+  CalendarClock,
+  Cpu,
+  Timer,
+  Users,
+  Bell,
+  LogIn,
+  LogOut,
+} from "lucide-vue-next";
 
 const router = useRouter();
 const isLoggedIn = ref(false);
@@ -40,7 +51,10 @@ const refreshPage = () => {
 
 <template>
   <aside class="sidebar">
-    <div class="logo" @click="refreshPage" title="Refresh Page">SmartWatt</div>
+    <div class="logo-container" @click="refreshPage" title="Refresh Page">
+      <div class="logo-icon">W</div>
+      <div class="logo-text">SmartWatt</div>
+    </div>
 
     <div v-if="!isAuthReady" class="loading-container">
       <div class="spinner"></div>
@@ -53,11 +67,17 @@ const refreshPage = () => {
           class="menu-item"
           active-class="active"
         >
-          Dashboard
+          <div class="icon-box">
+            <LayoutDashboard :size="16" />
+          </div>
+          <span>Dashboard</span>
         </router-link>
 
         <router-link to="/analytics" class="menu-item" active-class="active">
-          Analytics
+          <div class="icon-box">
+            <BarChart3 :size="16" />
+          </div>
+          <span>Analytics</span>
         </router-link>
 
         <router-link
@@ -65,33 +85,58 @@ const refreshPage = () => {
           class="menu-item"
           active-class="active"
         >
-          Room Schedule
+          <div class="icon-box">
+            <CalendarClock :size="16" />
+          </div>
+          <span>Room Schedule</span>
         </router-link>
 
         <div v-if="isLoggedIn">
           <p class="admin-tools-header">ADMIN TOOLS</p>
 
           <router-link to="/devices" class="menu-item" active-class="active">
-            Device Management
+            <div class="icon-box">
+              <Cpu :size="16" />
+            </div>
+            <span>Device Mgmt</span>
           </router-link>
 
           <router-link to="/schedule" class="menu-item" active-class="active">
-            Schedule Management
+            <div class="icon-box">
+              <Timer :size="16" />
+            </div>
+            <span>Schedule Mgmt</span>
           </router-link>
 
           <router-link to="/admin/users" class="menu-item" active-class="active">
-            User Management
+            <div class="icon-box">
+              <Users :size="16" />
+            </div>
+            <span>User Mgmt</span>
           </router-link>
 
           <router-link to="/notifications" class="menu-item" active-class="active">
-            Notifications
+            <div class="icon-box">
+              <Bell :size="16" />
+            </div>
+            <span>Notifications</span>
           </router-link>
         </div>
       </nav>
 
       <div class="auth-buttons">
-        <button v-if="isLoggedIn" class="action-btn logout" @click="handleLogout">Logout</button>
-        <button v-else class="action-btn login" @click="handleLogin">Login</button>
+        <button v-if="isLoggedIn" class="action-btn logout" @click="handleLogout">
+          <div class="icon-box">
+            <LogOut :size="16" />
+          </div>
+          <span>Logout</span>
+        </button>
+        <button v-else class="action-btn login" @click="handleLogin">
+          <div class="icon-box white">
+            <LogIn :size="16" />
+          </div>
+          <span>Login Admin</span>
+        </button>
       </div>
     </template>
   </aside>
@@ -100,105 +145,171 @@ const refreshPage = () => {
 <style scoped>
 /* Sidebar Layout */
 .sidebar {
-  width: 260px;
+  width: 250px;
   background-color: #ffffff;
-  padding: 30px 0;
-  box-shadow: 4px 0 10px rgba(0, 0, 0, 0.05);
+  padding: 25px 0;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
   height: 100vh;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Inter", sans-serif;
   position: fixed;
   top: 0;
   left: 0;
   z-index: 100;
-  overflow-y: auto; /* Allow scrolling within sidebar if content is tall */
+  border-right: 1px solid #f0f0f0;
 }
 
-/* Logo */
-.logo {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #3b82f6;
-  text-align: center;
-  margin-bottom: 30px;
-  padding: 0 20px;
+/* Logo Section */
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 25px;
+  margin-bottom: 40px;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: transform 0.2s;
 }
-.logo:hover {
-  opacity: 0.8;
+.logo-container:hover {
+  transform: translateX(2px);
+}
+.logo-icon {
+  background: #3b82f6;
+  color: white;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
+}
+.logo-text {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.5px;
 }
 
 /* Menu Items */
 .menu-item {
-  display: block;
-  text-align: center;
-  background-color: #f3f4f6;
-  color: #374151;
-  font-weight: 600;
-  padding: 12px 10px;
-  margin: 0 20px 12px 20px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  color: #64748b;
+  font-weight: 500;
+  padding: 10px 15px;
+  margin: 0 15px 6px 15px;
+  border-radius: 12px;
   text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.9rem;
+}
+
+.icon-box {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #f1f5f9;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  color: #64748b;
   transition: all 0.2s ease;
-  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.icon-box.white {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
 }
 
 .menu-item:hover {
-  background-color: #e5e7eb;
-  transform: translateY(-2px);
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+.menu-item:hover .icon-box {
+  border-color: #cbd5e1;
+  background-color: #ffffff;
+  transform: scale(1.05);
+  color: #3b82f6;
 }
 
 .menu-item.active {
+  background-color: #eff6ff;
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.menu-item.active .icon-box {
   background-color: #3b82f6;
   color: white;
-  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);
 }
 
 /* Admin Header */
 .admin-tools-header {
   padding: 0 25px;
   margin-top: 25px;
-  margin-bottom: 10px;
-  font-size: 0.75rem;
-  color: #9ca3af;
+  margin-bottom: 12px;
+  font-size: 0.7rem;
+  color: #94a3b8;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
 }
 
 /* Auth Buttons */
 .auth-buttons {
   margin-top: auto;
-  padding: 0 20px 40px 20px;
+  padding: 0 15px 30px 15px;
 }
 
 .action-btn {
   width: 100%;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 15px;
+  padding: 10px 15px;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
-  font-weight: 700;
-  font-size: 1rem;
-  transition: background-color 0.2s;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s;
 }
 
 .action-btn.login {
-  background-color: #dbeafe;
-  color: #2563eb;
+  background-color: #3b82f6;
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
 .action-btn.login:hover {
-  background-color: #bfdbfe;
+  background-color: #2563eb;
+  transform: translateY(-2px);
 }
 
 .action-btn.logout {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: transparent;
+  color: #94a3b8;
+  border: 1px solid #f1f5f9;
 }
 .action-btn.logout:hover {
-  background-color: #fecaca;
+  background-color: #fff1f2;
+  color: #ef4444;
+  border-color: #fee2e2;
+}
+.action-btn.logout:hover .icon-box {
+  background-color: #ef4444;
+  color: white;
+  border-color: #ef4444;
 }
 
 /* Spinner */

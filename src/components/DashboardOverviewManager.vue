@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import EnergyUsageChart from "./EnergyUsageChart.vue";
 import { useBuildingData } from "../composables/useBuildingData";
 
@@ -47,6 +47,8 @@ const toggleFloor = (floor) => {
     selectedFloors.value.push(floor);
   }
 };
+
+const isLoading = computed(() => gatewayStatus.value === "Connecting...");
 </script>
 
 <template>
@@ -56,13 +58,14 @@ const toggleFloor = (floor) => {
       <div class="status-bar">
         Gateway:
         <span class="status-badge" :class="gatewayStatus === 'Active' ? 'online' : 'offline'">
+          <span v-if="gatewayStatus === 'Active'" class="live-indicator"></span>
           {{ gatewayStatus }}
         </span>
         <span class="last-update">Last Update: {{ lastUpdate }}</span>
       </div>
     </div>
 
-    <div class="chart-section full-width-chart">
+    <div class="chart-section full-width-chart glass-effect">
       <div class="chart-header">
         <div class="header-left">
           <h3>POWER CONSUMPTION ANALYSIS</h3>
@@ -113,107 +116,151 @@ const toggleFloor = (floor) => {
     <div class="bottom-row">
       <div class="stats-container">
         <div class="stats-grid">
-          <div class="stat-card warning">
+          <div class="stat-card warning glass-effect">
             <p class="label">TOTAL BUILDING POWER</p>
             <div class="stat-content">
-              <h3>{{ allBuildingTotal }} <small style="font-size: 1rem; color: #666">W</small></h3>
-              <span class="trend" :class="allBuildingTotal > 15000 ? 'bad' : 'good'">
-                {{ allBuildingTotal > 15000 ? "High Load" : "Normal" }}
-                <small>All Floors</small>
-              </span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>
+                  {{ allBuildingTotal }} <small style="font-size: 1rem; color: #666">W</small>
+                </h3>
+                <span class="trend" :class="allBuildingTotal > 15000 ? 'bad' : 'good'">
+                  {{ allBuildingTotal > 15000 ? "High Load" : "Normal" }}
+                  <small>All Floors</small>
+                </span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card primary">
+          <div class="stat-card primary glass-effect">
             <p class="label">VOLTAGE</p>
             <div class="stat-content">
-              <h3>{{ voltage }} <small style="font-size: 1rem; color: #666">V</small></h3>
-              <span class="trend neutral">Live<small>Sensor</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ voltage }} <small style="font-size: 1rem; color: #666">V</small></h3>
+                <span class="trend neutral">Live<small>Sensor</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card info">
+          <div class="stat-card info glass-effect">
             <p class="label">CURRENT</p>
             <div class="stat-content">
-              <h3>{{ current }} <small style="font-size: 1rem; color: #666">A</small></h3>
-              <span class="trend neutral">Live<small>Sensor</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ current }} <small style="font-size: 1rem; color: #666">A</small></h3>
+                <span class="trend neutral">Live<small>Sensor</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card success">
+          <div class="stat-card success glass-effect">
             <p class="label">DAILY ENERGY</p>
             <div class="stat-content">
-              <h3>{{ dailyEnergy }} <small style="font-size: 1rem; color: #666">kWh</small></h3>
-              <span class="trend good">▲ 1%<small>vs yesterday</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ dailyEnergy }} <small style="font-size: 1rem; color: #666">kWh</small></h3>
+                <span class="trend good">▲ 1%<small>vs yesterday</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card warning">
+          <div class="stat-card warning glass-effect">
             <p class="label">COST</p>
             <div class="stat-content">
-              <h3>{{ cost }} <small style="font-size: 1rem; color: #666">฿</small></h3>
-              <span class="trend neutral">Normal<small>Rate</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ cost }} <small style="font-size: 1rem; color: #666">฿</small></h3>
+                <span class="trend neutral">Normal<small>Rate</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card secondary">
+          <div class="stat-card secondary glass-effect">
             <p class="label">TOTAL USAGE</p>
             <div class="stat-content">
-              <h3>{{ totalUsage }} <small style="font-size: 1rem; color: #666">MWh</small></h3>
-              <span class="trend neutral">Year<small>to date</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ totalUsage }} <small style="font-size: 1rem; color: #666">MWh</small></h3>
+                <span class="trend neutral">Year<small>to date</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card success">
+          <div class="stat-card success glass-effect">
             <p class="label">AVG TEMP</p>
             <div class="stat-content">
-              <h3>{{ temperature }} <small style="font-size: 1rem; color: #666">°C</small></h3>
-              <span class="trend good">Good<small>Cooling</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ temperature }} <small style="font-size: 1rem; color: #666">°C</small></h3>
+                <span class="trend good">Good<small>Cooling</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card info">
+          <div class="stat-card info glass-effect">
             <p class="label">HUMIDITY</p>
             <div class="stat-content">
-              <h3>{{ humidity }} <small style="font-size: 1rem; color: #666">%</small></h3>
-              <span class="trend neutral">Optimal<small>Range</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ humidity }} <small style="font-size: 1rem; color: #666">%</small></h3>
+                <span class="trend neutral">Optimal<small>Range</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card info">
+          <div class="stat-card info glass-effect">
             <p class="label">PM2.5</p>
             <div class="stat-content">
-              <h3>{{ pm25 }} <small style="font-size: 1rem; color: #666">µg/m³</small></h3>
-              <span class="trend good">Safe<small>Air Quality</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ pm25 }} <small style="font-size: 1rem; color: #666">µg/m³</small></h3>
+                <span class="trend good">Safe<small>Air Quality</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card success">
+          <div class="stat-card success glass-effect">
             <p class="label">STATUS</p>
             <div class="stat-content">
-              <h3>100%</h3>
-              <span class="trend good">Online<small>System OK</small></span>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>100%</h3>
+                <span class="trend good">Online<small>System OK</small></span>
+              </template>
             </div>
           </div>
 
-          <div class="stat-card alert">
+          <div class="stat-card alert glass-effect">
             <p class="label">ALERTS</p>
             <div class="stat-content">
-              <h3>{{ alertData.count }}</h3>
-              <a :href="alertData.link" class="alert-btn-soft">
-                ⚠️ {{ alertData.message }} <span class="arrow">→</span>
-              </a>
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ alertData.count }}</h3>
+                <a :href="alertData.link" class="alert-btn-soft">
+                  ⚠️ {{ alertData.message }} <span class="arrow">→</span>
+                </a>
+              </template>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="hierarchy-area">
+      <div class="hierarchy-area glass-effect">
         <div class="area-header">
           <h3>Building Status</h3>
         </div>
         <div class="floor-list">
+          <template v-if="isLoading">
+            <div
+              class="skeleton"
+              style="height: 50px; margin-bottom: 10px"
+              v-for="i in 3"
+              :key="i"
+            ></div>
+          </template>
           <div
+            v-else
             v-for="floor in floorData"
             :key="floor.id"
             class="floor-item"
@@ -414,6 +461,43 @@ h2 {
   transition: transform 0.2s;
   border: 1px solid #f0f0f0;
   border-left-width: 4px;
+  animation: fadeInUp 0.5s ease-out backwards;
+}
+/* Stagger Animation for each child */
+.stat-grid > .stat-card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+.stat-grid > .stat-card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.stat-grid > .stat-card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.stat-grid > .stat-card:nth-child(4) {
+  animation-delay: 0.4s;
+}
+.stat-grid > .stat-card:nth-child(5) {
+  animation-delay: 0.5s;
+}
+.stat-grid > .stat-card:nth-child(6) {
+  animation-delay: 0.6s;
+}
+.stat-grid > .stat-card:nth-child(7) {
+  animation-delay: 0.7s;
+}
+.stat-grid > .stat-card:nth-child(8) {
+  animation-delay: 0.8s;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .stat-card:hover {
   transform: translateY(-2px);
@@ -649,5 +733,65 @@ h2 {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Pulse Animation */
+@keyframes pulse-green {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(25, 135, 84, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(25, 135, 84, 0);
+  }
+}
+
+.live-indicator {
+  width: 8px;
+  height: 8px;
+  background-color: #198754;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+  animation: pulse-green 2s infinite;
+  vertical-align: middle;
+}
+
+/* Glassmorphism Card Style */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Skeleton Loading */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.skeleton-text {
+  height: 20px;
+  width: 60%;
+  margin-bottom: 8px;
+}
+.skeleton-value {
+  height: 32px;
+  width: 80%;
 }
 </style>
