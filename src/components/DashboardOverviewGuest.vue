@@ -10,7 +10,7 @@ const {
   floorData,
   voltage,
   current,
-  power,
+  allBuildingTotal,
   temperature,
   humidity,
   toggleFloorExpand,
@@ -94,7 +94,12 @@ const toggleFloor = (floor) => {
       </div>
 
       <div style="height: 350px; width: 100%">
-        <EnergyUsageChart :floors="selectedFloors" :timeRange="timeRange" :livePower="power" />
+        <!-- ✅ ส่ง allBuildingTotal ไปให้กราฟ -->
+        <EnergyUsageChart
+          :floors="selectedFloors"
+          :timeRange="timeRange"
+          :livePower="Number(allBuildingTotal)"
+        />
       </div>
     </div>
 
@@ -104,9 +109,10 @@ const toggleFloor = (floor) => {
           <div class="stat-card warning">
             <p class="label">CURRENT POWER</p>
             <div class="stat-content">
-              <h3>{{ power }} <small class="unit">W</small></h3>
-              <span class="trend" :class="power > 1000 ? 'bad' : 'good'">
-                {{ power > 1000 ? "High" : "Normal" }}
+              <!-- ✅ แสดงผล allBuildingTotal -->
+              <h3>{{ allBuildingTotal }} <small class="unit">W</small></h3>
+              <span class="trend" :class="Number(allBuildingTotal) > 1000 ? 'bad' : 'good'">
+                {{ Number(allBuildingTotal) > 1000 ? "High" : "Normal" }}
               </span>
             </div>
           </div>

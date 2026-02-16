@@ -1,7 +1,15 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { rtdb as db } from "../firebase";
-import { ref as dbRef, onValue, set, remove, update, push, off } from "firebase/database";
+import {
+  ref as dbRef,
+  onValue,
+  remove,
+  update,
+  push,
+  off,
+  runTransaction,
+} from "firebase/database";
 
 // --- State ---
 const devices = ref([]);
@@ -112,7 +120,7 @@ const openEditModal = (device) => {
   isModalOpen.value = true;
 };
 
-// ✅ ฟังก์ชันบันทึกการตั้งค่า (พร้อมระบบกู้คืนชื่อ)
+// ✅ ฟังก์ชันบันทึกการตั้งค่า (พร้อมระบบ Concurrency Control)
 const saveConfig = async () => {
   // 1. ตรวจสอบชื่อ: ถ้าว่าง ให้เอา defaultName หรือชื่อเดิมมาใช้ (Auto-Recovery)
   const nameToSave =
@@ -122,13 +130,27 @@ const saveConfig = async () => {
 
   if (selectedDevice.value && tempRate.value) {
     try {
-      await update(dbRef(db, `devices/${selectedDevice.value.id}`), {
-        name: nameToSave,
-        // ถ้าอุปกรณ์เก่าไม่มี defaultName ให้เติมเข้าไปด้วยเลย
-        defaultName: selectedDevice.value.defaultName || nameToSave,
-        sendRate: tempRate.value + " min",
-        last_update: Date.now(),
+      // ✅ 4. Concurrency Control: ใช้ runTransaction แทน update
+      await runTransaction(dbRef(db, `devices/${selectedDevice.value.id}`), (currentData) => {
+        if (currentData === null) {
+          return {
+            name: nameToSave,
+            defaultName: nameToSave,
+            sendRate: tempRate.value + " min",
+            last_update: Date.now(),
+          };
+        } else {
+          // ถ้ามีข้อมูลอยู่แล้ว ให้ merge ค่าใหม่เข้าไป
+          return {
+            ...currentData,
+            name: nameToSave,
+            defaultName: currentData.defaultName || nameToSave,
+            sendRate: tempRate.value + " min",
+            last_update: Date.now(),
+          };
+        }
       });
+
       isModalOpen.value = false;
     } catch (error) {
       alert("Error: " + error.message);

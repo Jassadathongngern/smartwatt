@@ -13,6 +13,7 @@ import {
 } from "chart.js";
 import { Line } from "vue-chartjs";
 
+// TODO: Optimization Plan - Consider migrating to ApexCharts or ECharts in the next phase to reduce memory usage.
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -146,7 +147,7 @@ const chartOptions = {
         font: { size: 14, weight: "bold" },
       },
       ticks: {
-        maxTicksLimit: 10,        
+        maxTicksLimit: 10,
         maxRotation: 0,
       },
     },

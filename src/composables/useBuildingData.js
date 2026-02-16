@@ -1,5 +1,4 @@
 import { ref, onMounted, onUnmounted } from "vue";
-// ✅ ดึงมาทั้ง db (Firestore) และ rtdb (Realtime DB)
 import { db, rtdb } from "../firebase";
 import { ref as dbRef, onValue, off } from "firebase/database";
 import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
@@ -65,14 +64,20 @@ export function useBuildingData() {
     onValue(deviceRef, (snapshot) => {
       const allDevices = snapshot.val();
       if (allDevices) {
-        // Logic คำนวณค่าไฟเดิมของคุณ...
+        // Logic คำนวณค่าไฟ
         let grandTotal = 0;
         floorData.value.forEach((floor) => {
           let floorTotal = 0;
           floor.rooms.forEach((room) => {
             const deviceData = allDevices[room.deviceId];
             if (deviceData) {
-              const p = Number(deviceData.w || 0);
+              let p = Number(deviceData.w || 0);
+
+              // ✅ 1. Data Sanitization (Out of Range Guard)
+              if (p < 0 || p > 50000) {
+                p = 0;
+              }
+
               room.power = (p / 1000).toFixed(2);
               room.status = "online";
               floorTotal += p;
@@ -81,8 +86,19 @@ export function useBuildingData() {
           floor.totalPower = (floorTotal / 1000).toFixed(2);
           grandTotal += floorTotal;
         });
-        allBuildingTotal.value = grandTotal;
-        dailyEnergy.value = ((grandTotal * 8) / 1000).toFixed(2);
+
+        // ✅ 3. Moving Average (Smoothing)
+        // เก็บค่า 5 ครั้งล่าสุด
+        if (!window.powerHistory) window.powerHistory = [];
+        window.powerHistory.push(grandTotal);
+        if (window.powerHistory.length > 5) window.powerHistory.shift();
+
+        // หาค่าเฉลี่ย
+        const avgPower =
+          window.powerHistory.reduce((a, b) => a + b, 0) / window.powerHistory.length;
+
+        allBuildingTotal.value = avgPower.toFixed(2); // ใช้ค่าเฉลี่ยแทนค่าดิบ
+        dailyEnergy.value = ((avgPower * 8) / 1000).toFixed(2);
         cost.value = (dailyEnergy.value * 4.5).toFixed(2);
       }
     });
