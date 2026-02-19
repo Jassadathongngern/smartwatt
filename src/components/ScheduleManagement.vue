@@ -1,21 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
 
 // ✅ แก้ไข: ดึง rtdb มาใช้แทน db (Firestore)
-// ใส่ 'as db' เพื่อให้โค้ดข้างล่างที่ใช้ตัวแปร db ทำงานได้ต่อเลย ไม่ต้องไล่แก้
 import { rtdb as db } from "../firebase";
+import { ref as dbRef, onValue, remove, update, off, push } from "firebase/database";
 
-import { ref as dbRef, onValue, set, remove, update, off, push } from "firebase/database";
-
-const route = useRoute();
-
-// --- 1. Check Admin Role ---
-const isManager = computed(() => {
-  return route.path.includes("/admin");
-});
-
-// --- 2. State & Data ---
+// --- 1. State & Data ---
 const schedules = ref([]);
 const searchQuery = ref("");
 const selectedDay = ref("All");
@@ -170,22 +160,35 @@ const confirmDelete = async () => {
       <button class="btn-add" @click="openAddModal">+ Add Schedule</button>
     </div>
 
-    <div class="controls-bar">
-      <div class="filter-group">
-        <select v-model="selectedDay" class="control-input">
-          <option value="All">All Days</option>
-          <option value="Monday">Monday</option>
-          <option value="Tuesday">Tuesday</option>
-          <option value="Wednesday">Wednesday</option>
-          <option value="Thursday">Thursday</option>
-          <option value="Friday">Friday</option>
-        </select>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search Room or Subject..."
-          class="control-input search"
-        />
+    <div class="control-bar">
+      <!-- Day Selection Group -->
+      <div class="control-group">
+        <label class="group-label">Day</label>
+        <div class="toggle-group day-pills">
+          <button
+            v-for="day in ['All', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']"
+            :key="day"
+            class="toggle-btn"
+            :class="{ active: selectedDay === day }"
+            @click="selectedDay = day"
+          >
+            {{ day === "All" ? "All Days" : day.substring(0, 3) }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Search Group -->
+      <div class="control-group">
+        <label class="group-label">Search</label>
+        <div class="search-wrapper">
+          <span class="search-icon">🔍</span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search Room or Subject..."
+            class="premium-control-input"
+          />
+        </div>
       </div>
     </div>
 
@@ -269,67 +272,134 @@ const confirmDelete = async () => {
       </table>
     </div>
 
-    <div v-if="showModal" class="modal-overlay">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>{{ isEditMode ? "Edit Schedule" : "Add New Schedule" }}</h3>
-          <button class="close-btn" @click="showModal = false">×</button>
+    <Transition name="fade">
+      <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+        <div class="modal-content premium-modal">
+          <div class="modal-header">
+            <div class="header-title">
+              <span class="icon-bg">📅</span>
+              <div>
+                <h3>{{ isEditMode ? "Edit Schedule" : "New Schedule" }}</h3>
+                <p class="subtitle">Manage classroom & device timings</p>
+              </div>
+            </div>
+            <button class="close-btn" @click="showModal = false">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <form @submit.prevent="handleSave">
+              <!-- Subject -->
+              <div class="form-section">
+                <label class="section-label">Subject Details</label>
+                <div class="input-wrapper">
+                  <span class="input-icon">📚</span>
+                  <input
+                    v-model="form.subject"
+                    type="text"
+                    required
+                    class="premium-input"
+                    placeholder="e.g. Computer Programming"
+                  />
+                </div>
+              </div>
+
+              <!-- Room & Day -->
+              <div class="row-2-col">
+                <div class="form-group">
+                  <label class="section-label">Room</label>
+                  <div class="input-wrapper">
+                    <span class="input-icon">📍</span>
+                    <input
+                      v-model="form.room"
+                      type="text"
+                      required
+                      class="premium-input"
+                      placeholder="Room 16101"
+                    />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="section-label">Day</label>
+                  <div class="select-wrapper">
+                    <select v-model="form.day" class="premium-input">
+                      <option>Monday</option>
+                      <option>Tuesday</option>
+                      <option>Wednesday</option>
+                      <option>Thursday</option>
+                      <option>Friday</option>
+                      <option>Saturday</option>
+                      <option>Sunday</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Time -->
+              <div class="form-section mt-4">
+                <label class="section-label">Time Interval</label>
+                <div class="row-2-col">
+                  <div class="time-input-group">
+                    <span class="time-label">Start</span>
+                    <input
+                      v-model="form.startTime"
+                      type="time"
+                      required
+                      class="premium-input time-field"
+                    />
+                  </div>
+                  <div class="time-input-group">
+                    <span class="time-label">End</span>
+                    <input
+                      v-model="form.endTime"
+                      type="time"
+                      required
+                      class="premium-input time-field"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Status -->
+              <div class="form-section mt-4">
+                <label class="section-label">Status</label>
+                <div class="status-options">
+                  <label class="radio-card" :class="{ active: form.status === 'Active' }">
+                    <input type="radio" v-model="form.status" value="Active" />
+                    <span class="radio-icon">✅</span>
+                    <span>Active</span>
+                  </label>
+                  <label class="radio-card" :class="{ active: form.status === 'Cancelled' }">
+                    <input type="radio" v-model="form.status" value="Cancelled" />
+                    <span class="radio-icon">❌</span>
+                    <span>Cancelled</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="modal-footer">
+                <button type="button" class="btn-ghost" @click="showModal = false">Cancel</button>
+                <button type="submit" class="btn-primary-save">Save Schedule</button>
+              </div>
+            </form>
+          </div>
         </div>
-
-        <form @submit.prevent="handleSave">
-          <div class="form-group">
-            <label>Subject Name</label>
-            <input
-              v-model="form.subject"
-              type="text"
-              required
-              placeholder="e.g. Computer Programming"
-            />
-          </div>
-
-          <div class="form-row">
-            <div class="form-group half">
-              <label>Room</label>
-              <input v-model="form.room" type="text" required placeholder="e.g. Room 16101" />
-            </div>
-            <div class="form-group half">
-              <label>Day</label>
-              <select v-model="form.day">
-                <option>Monday</option>
-                <option>Tuesday</option>
-                <option>Wednesday</option>
-                <option>Thursday</option>
-                <option>Friday</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group half">
-              <label>Start Time</label>
-              <input v-model="form.startTime" type="time" required />
-            </div>
-            <div class="form-group half">
-              <label>End Time</label>
-              <input v-model="form.endTime" type="time" required />
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>Status</label>
-            <select v-model="form.status">
-              <option value="Active">Active</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
-          </div>
-
-          <div class="modal-actions">
-            <button type="button" class="btn-cancel" @click="showModal = false">Cancel</button>
-            <button type="submit" class="btn-save">Save</button>
-          </div>
-        </form>
       </div>
-    </div>
+    </Transition>
 
     <div v-if="isDeleteModalOpen" class="modal-overlay">
       <div class="modal-content delete-modal">
@@ -352,6 +422,102 @@ const confirmDelete = async () => {
 
 <style scoped>
 /* CSS เดิม */
+/* --- Premium Control Bar --- */
+.control-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: white;
+  padding: 10px 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f1f5f9;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.group-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.toggle-group {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  gap: 4px;
+}
+
+.toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.toggle-btn:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.toggle-btn.active {
+  background: white;
+  color: #3b82f6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 260px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.premium-control-input {
+  width: 100%;
+  padding: 10px 16px 10px 40px;
+  font-size: 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  transition: all 0.2s;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.premium-control-input:focus {
+  background: white;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+/* Original styles below */
 .schedule-page {
   padding: 20px;
   background-color: #f8f9fa;
@@ -495,6 +661,7 @@ td {
   border-color: #ef4444;
   color: #ef4444;
 }
+/* --- Modal Overlay & Base --- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -505,126 +672,319 @@ td {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
-  backdrop-filter: blur(2px);
+  z-index: 2000;
+  backdrop-filter: blur(6px);
 }
+
 .modal-content {
   background: white;
-  width: 100%;
+  width: 90%;
   max-width: 500px;
-  border-radius: 12px;
-  padding: 25px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  animation: slideDown 0.3s ease-out;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: slideUp 0.3s ease-out;
 }
+
+/* --- Premium Modal Styles --- */
+.premium-modal {
+  width: 95%;
+  max-width: 520px;
+  border-radius: 24px;
+}
+
 .modal-header {
+  padding: 24px;
+  background: white;
+  border-bottom: 1px solid #f1f5f9;
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+}
+
+.header-title {
+  display: flex;
   align-items: center;
+  gap: 16px;
+}
+
+.icon-bg {
+  width: 48px;
+  height: 48px;
+  background: #f8fafc;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.header-title h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  margin: 4px 0 0 0;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: flex;
+}
+
+.close-btn:hover {
+  background: #f1f5f9;
+  color: #ef4444;
+  transform: rotate(90deg);
+}
+
+.modal-body {
+  padding: 24px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.form-section {
   margin-bottom: 20px;
 }
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.5rem;
-  color: #333;
-}
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 2rem;
-  cursor: pointer;
-  color: #aaa;
-}
-.close-btn:hover {
-  color: #000;
-}
-.form-group {
-  margin-bottom: 15px;
-}
-.form-group label {
+
+.section-label {
   display: block;
-  margin-bottom: 5px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #555;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
 }
-.form-group input,
-.form-group select {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ced4da;
-  border-radius: 6px;
-  font-size: 1rem;
-  box-sizing: border-box;
-}
-.form-row {
+
+.input-wrapper,
+.select-wrapper {
+  position: relative;
   display: flex;
-  gap: 15px;
+  align-items: center;
 }
-.half {
-  flex: 1;
+
+.input-icon {
+  position: absolute;
+  left: 16px;
+  font-size: 1.1rem;
+  pointer-events: none;
+  z-index: 10;
 }
-.modal-actions {
+
+.premium-input {
+  width: 100%;
+  padding: 12px 16px 12px 48px;
+  font-size: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #1e293b;
+  font-weight: 500;
+  background: #fff;
+}
+
+select.premium-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 40px;
+}
+
+.premium-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.row-2-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.time-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.time-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+.time-field {
+  padding-left: 16px; /* No icon for time */
+}
+
+/* Status Radio Cards */
+.status-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.radio-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #f8fafc;
+}
+
+.radio-card input {
+  display: none;
+}
+
+.radio-card span {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.radio-card:hover {
+  background: #fff;
+  border-color: #cbd5e1;
+}
+
+.radio-card.active {
+  background: #fff;
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.radio-card.active span {
+  color: #1e293b;
+}
+
+.radio-icon {
+  font-size: 1.2rem;
+}
+
+.modal-footer {
+  padding: 24px;
+  background: white;
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 25px;
+  gap: 12px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 12px;
 }
-.btn-cancel {
-  background: #e9ecef;
-  color: #333;
+
+.btn-ghost {
+  padding: 12px 24px;
+  color: #64748b;
+  font-weight: 600;
+  background: transparent;
   border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
   cursor: pointer;
-  font-weight: bold;
+  border-radius: 12px;
+  transition: all 0.2s;
 }
-.btn-save {
-  background: #007bff;
+
+.btn-ghost:hover {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.btn-primary-save {
+  padding: 12px 32px;
+  background: #0f172a;
   color: white;
+  font-weight: 600;
   border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
+  border-radius: 12px;
   cursor: pointer;
-  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+  transition: all 0.2s;
 }
-.btn-save:hover {
-  background: #0056b3;
+
+.btn-primary-save:hover {
+  background: #1e293b;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.3);
 }
 
 /* ✅ Style สำหรับ Delete Modal */
 .delete-modal {
   max-width: 400px;
+  border-radius: 20px;
 }
+
+.modal-body.text-center {
+  padding: 32px 24px;
+}
+
 .text-danger {
   color: #dc3545;
   font-weight: 700;
 }
+
 .btn-delete-confirm {
   background: #dc3545;
   color: white;
   border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
+  padding: 12px 24px;
+  border-radius: 12px;
   cursor: pointer;
-  font-weight: bold;
+  font-weight: 600;
+  transition: all 0.2s;
 }
+
 .btn-delete-confirm:hover {
   background: #bb2d3b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.2);
 }
+
 .justify-center {
   justify-content: center !important;
 }
 
-@keyframes slideDown {
+.mt-4 {
+  margin-top: 1rem;
+}
+
+@keyframes slideUp {
   from {
-    transform: translateY(-20px);
+    transform: translateY(20px);
     opacity: 0;
   }
   to {
     transform: translateY(0);
     opacity: 1;
   }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 /* Responsive Adjustments */
@@ -659,28 +1019,22 @@ td {
     min-width: 600px;
   }
 
-  th,
-  td {
-    padding: 10px 8px;
-    font-size: 0.85rem;
-  }
-
-  .modal-content {
-    margin: 10px;
-    padding: 15px;
+  .modal-content.premium-modal {
+    width: 95%;
     max-width: 100%;
+    border-radius: 20px;
   }
 
-  .form-row {
-    flex-direction: column;
-    gap: 0;
+  .row-2-col {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
-  .modal-actions {
+  .modal-footer {
     flex-direction: column-reverse;
   }
 
-  .modal-actions button {
+  .modal-footer button {
     width: 100%;
   }
 }

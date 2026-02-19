@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onMounted } from "vue";
+import { computed, ref, watch, onUnmounted } from "vue";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -82,6 +82,10 @@ watch(
   { deep: true }, // เพิ่ม deep watch เผื่อ Object เปลี่ยนไส้ใน
 );
 
+onUnmounted(() => {
+  // Clean up if any intervals were used (currently none)
+});
+
 // ✅ เมื่อเปลี่ยน Time Range ให้เคลียร์กราฟเริ่มใหม่ (UX)
 watch(
   () => props.timeRange,
@@ -92,11 +96,6 @@ watch(
     dataF3.value = [];
   },
 );
-
-// ✅ เพิ่ม onMounted: เริ่มต้นปุ๊บ วาดจุดแรกปั๊บ
-onMounted(() => {
-  addDataPoint(props.livePower);
-});
 
 // --- 3. จัดข้อมูลส่งให้ Chart ---
 const chartData = computed(() => {

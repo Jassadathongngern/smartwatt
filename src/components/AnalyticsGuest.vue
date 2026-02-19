@@ -800,18 +800,18 @@ const handleExport = () => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.calendar-trigger {
-  color: #3b82f6; /* Highlight calendar button slightly */
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .divider {
   width: 1px;
   height: 16px;
   background: #cbd5e1;
   margin: 0 4px;
+}
+
+.calendar-trigger {
+  color: #3b82f6; /* Highlight calendar button slightly */
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* --- Select Group --- */

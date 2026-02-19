@@ -258,25 +258,46 @@ const getBatteryColor = (level) => {
       <button class="btn-add" @click="openAddModal">+ New Device</button>
     </div>
 
-    <div class="controls-bar">
-      <input
-        v-model="searchQuery"
-        type="text"
-        placeholder="Search Name, ID, or Room..."
-        class="control-input search"
-      />
-      <select v-model="filterFloor" class="control-input">
-        <option value="All">All Floors</option>
-        <option value="1">Floor 1</option>
-        <option value="2">Floor 2</option>
-        <option value="3">Floor 3</option>
-      </select>
-      <select v-model="filterStatus" class="control-input">
-        <option value="All">All Status</option>
-        <option value="Active">Active</option>
-        <option value="Inactive">Inactive</option>
-        <option value="Maintenance">Maintenance</option>
-      </select>
+    <div class="control-bar">
+      <!-- Search Group -->
+      <div class="control-group">
+        <label class="group-label">Search</label>
+        <div class="search-wrapper">
+          <span class="search-icon">🔍</span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search Name, ID, or Room..."
+            class="premium-control-input search-input"
+          />
+        </div>
+      </div>
+
+      <!-- Filters Group -->
+      <div class="control-group">
+        <label class="group-label">Filtering</label>
+        <div class="select-group">
+          <div class="custom-premium-select">
+            <select v-model="filterFloor">
+              <option value="All">All Floors</option>
+              <option value="1">Floor 1</option>
+              <option value="2">Floor 2</option>
+              <option value="3">Floor 3</option>
+            </select>
+            <div class="select-arrow">▼</div>
+          </div>
+
+          <div class="custom-premium-select">
+            <select v-model="filterStatus">
+              <option value="All">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="Maintenance">Maintenance</option>
+            </select>
+            <div class="select-arrow">▼</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="table-container">
@@ -390,50 +411,92 @@ const getBatteryColor = (level) => {
 
     <Transition name="fade">
       <div v-if="isModalOpen" class="modal-overlay" @click.self="isModalOpen = false">
-        <div class="modal-content">
+        <div class="modal-content premium-modal">
           <div class="modal-header">
-            <h3>⚙️ Device Configuration</h3>
-            <button class="close-btn" @click="isModalOpen = false">×</button>
+            <div class="header-title">
+              <span class="icon-bg">⚙️</span>
+              <div>
+                <h3>Device Configuration</h3>
+                <p class="subtitle">Manage settings for {{ selectedDevice?.name }}</p>
+              </div>
+            </div>
+            <button class="close-btn" @click="isModalOpen = false">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
           </div>
+
           <div class="modal-body">
-            <div class="input-group mb-3">
-              <label>Device Name</label>
-              <input
-                v-model="tempName"
-                type="text"
-                class="modal-input text-left"
-                placeholder="Enter name or leave blank for default"
-              />
+            <!-- Section 1: General Info -->
+            <div class="form-section">
+              <label class="section-label">General Information</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🏷️</span>
+                <input
+                  v-model="tempName"
+                  type="text"
+                  class="premium-input"
+                  placeholder="Enter device name"
+                />
+              </div>
+              <p class="helper-text">Original Name: {{ selectedDevice?.defaultName || "-" }}</p>
             </div>
 
-            <div class="input-group mb-3">
-              <label>LoRa Send Rate (Minutes)</label>
-              <div class="flex-row">
-                <input v-model="tempRate" type="number" min="1" class="modal-input" />
+            <!-- Section 2: Transmission Rate -->
+            <div class="form-section">
+              <label class="section-label">Data Transmission Rate</label>
+              <div class="rate-control">
+                <div class="custom-rate">
+                  <input v-model="tempRate" type="number" min="1" class="rate-input" />
+                  <span class="unit">min</span>
+                </div>
+                <div class="preset-pills">
+                  <button
+                    v-for="rate in ratePresets"
+                    :key="rate"
+                    class="pill-btn"
+                    :class="{ active: tempRate === rate }"
+                    @click="tempRate = rate"
+                  >
+                    {{ rate }}m
+                  </button>
+                </div>
               </div>
-              <div class="preset-grid">
-                <button
-                  v-for="rate in ratePresets"
-                  :key="rate"
-                  class="preset-btn"
-                  :class="{ active: tempRate === rate }"
-                  @click="tempRate = rate"
-                >
-                  {{ rate }} m
+            </div>
+
+            <!-- Section 3: Power Management (Danger Zone) -->
+            <div class="danger-zone">
+              <div class="dz-header">
+                <span class="dz-icon">⚡</span>
+                <span class="dz-title">Power Management</span>
+              </div>
+              <div class="dz-content">
+                <p>
+                  Order the device to enter Deep Sleep mode to conserve battery. Device will wake up
+                  on next scheduled uplink.
+                </p>
+                <button class="btn-sleep-premium" @click="orderSleep">
+                  <span>💤 Order Sleep Mode</span>
                 </button>
               </div>
             </div>
-
-            <hr class="divider" />
-            <div class="sleep-section">
-              <p class="text-sm text-gray-500 mb-2">Power Management</p>
-              <button class="btn-sleep" @click="orderSleep">💤 Order Sleep Mode</button>
-              <p class="text-xs text-gray-400 mt-1">*Device will sleep after next uplink.</p>
-            </div>
           </div>
+
           <div class="modal-footer">
-            <button class="btn-cancel" @click="isModalOpen = false">Cancel</button>
-            <button class="btn-save" @click="saveConfig">Save Changes</button>
+            <button class="btn-ghost" @click="isModalOpen = false">Cancel</button>
+            <button class="btn-primary-save" @click="saveConfig">Save Changes</button>
           </div>
         </div>
       </div>
@@ -530,6 +593,115 @@ const getBatteryColor = (level) => {
 
 <style scoped>
 /* CSS */
+/* --- Premium Control Bar --- */
+.control-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: white;
+  padding: 12px 24px;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f1f5f9;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.group-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 300px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.premium-control-input {
+  width: 100%;
+  padding: 10px 16px 10px 40px;
+  font-size: 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  transition: all 0.2s;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.premium-control-input:focus {
+  background: white;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.select-group {
+  display: flex;
+  gap: 8px;
+}
+
+.custom-premium-select {
+  position: relative;
+  min-width: 140px;
+}
+
+.custom-premium-select select {
+  width: 100%;
+  appearance: none;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 10px 36px 10px 16px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.custom-premium-select select:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.custom-premium-select select:focus {
+  border-color: #3b82f6;
+  background: white;
+  outline: none;
+}
+
+.select-arrow {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+/* Original styles below */
 .device-page {
   padding: 20px;
   background-color: #f8f9fa;
@@ -796,6 +968,299 @@ td {
 .modal-input.text-left {
   text-align: left;
 }
+/* --- Premium Modal Styles --- */
+.premium-modal {
+  background: white;
+  width: 95%;
+  max-width: 480px;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  font-family: "Inter", sans-serif;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.modal-header {
+  padding: 24px;
+  background: white;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.icon-bg {
+  width: 48px;
+  height: 48px;
+  background: #f8fafc;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.header-title h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  margin: 4px 0 0 0;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: flex;
+}
+
+.close-btn:hover {
+  background: #f1f5f9;
+  color: #ef4444;
+  transform: rotate(90deg);
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-section {
+  margin-bottom: 24px;
+}
+
+.section-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 12px;
+  letter-spacing: 0.5px;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 16px;
+  font-size: 1.1rem;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.premium-input {
+  width: 100%;
+  padding: 14px 16px 14px 50px;
+  font-size: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.premium-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.helper-text {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 8px;
+  margin-left: 4px;
+}
+
+/* Rate Control */
+.rate-control {
+  background: #f8fafc;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.custom-rate {
+  display: flex;
+  align-items: center;
+  background: white;
+  border-radius: 12px;
+  padding: 8px 16px;
+  margin-bottom: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+.rate-input {
+  border: none;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #3b82f6;
+  width: 100%;
+  outline: none;
+}
+
+.unit {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.preset-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pill-btn {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pill-btn:hover {
+  background: rgba(255, 255, 255, 0.5);
+  color: #334155;
+}
+
+.pill-btn.active {
+  background: white;
+  color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  font-weight: 700;
+}
+
+/* Danger Zone */
+.danger-zone {
+  margin-top: 32px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.dz-header {
+  padding: 12px 20px;
+  background: #fee2e2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b91c1c;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.dz-content {
+  padding: 20px;
+}
+
+.dz-content p {
+  margin: 0 0 16px 0;
+  font-size: 0.875rem;
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.btn-sleep-premium {
+  width: 100%;
+  padding: 12px;
+  background: white;
+  border: 1px solid #f87171;
+  color: #dc2626;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-sleep-premium:hover {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
+}
+
+/* Footer */
+.modal-footer {
+  padding: 24px;
+  background: white;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.btn-ghost {
+  padding: 12px 24px;
+  color: #64748b;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.btn-ghost:hover {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.btn-primary-save {
+  padding: 12px 32px;
+  background: #0f172a;
+  color: white;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+  transition: all 0.2s;
+}
+
+.btn-primary-save:hover {
+  background: #1e293b;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.3);
+}
+
+.btn-primary-save:active {
+  transform: translateY(0);
+}
+
 .row-2-col {
   display: grid;
   grid-template-columns: 1fr 1fr;

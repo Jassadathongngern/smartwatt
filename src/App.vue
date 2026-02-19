@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import AppSidebar from "./components/AppSidebar.vue";
+import SystemAlertMonitor from "./components/SystemAlertMonitor.vue";
 
 const route = useRoute();
 // เริ่มต้นเปิดไว้สำหรับ Desktop
@@ -24,10 +25,20 @@ const closeSidebar = () => {
     isSidebarVisible.value = false;
   }
 };
+
+// Check if user is admin (simple check from local storage or auth state)
+// Ideally this should use a proper store, but for now we rely on localStorage
+const isAdmin = computed(() => {
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  return user.role_id === 1;
+});
 </script>
 
 <template>
   <div class="app-layout">
+    <!-- Background Monitor -->
+    <SystemAlertMonitor v-if="isAdmin" />
+
     <!-- Overlay for mobile/tablet when sidebar is open -->
     <div
       v-if="isSidebarVisible && showSidebar"

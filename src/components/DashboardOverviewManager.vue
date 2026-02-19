@@ -28,14 +28,13 @@ const alertData = ref({ count: 0, message: "System Normal", link: "#" });
 
 // The livePower for the manager chart
 const liveFloorData = computed(() => {
-  const f1 = floorData.value.find((f) => f.id === "1")?.totalPower || 0;
-  const f2 = floorData.value.find((f) => f.id === "2")?.totalPower || 0;
-  const f3 = floorData.value.find((f) => f.id === "3")?.totalPower || 0;
-  return {
-    1: Number(f1),
-    2: Number(f2),
-    3: Number(f3),
-  };
+  const data = {};
+  if (floorData.value) {
+    floorData.value.forEach((f) => {
+      data[f.id] = Number(f.totalPower || 0);
+    });
+  }
+  return data;
 });
 
 // --- Local helper functions for UI ---
@@ -43,10 +42,10 @@ const selectTimeRange = (range) => {
   timeRange.value = range;
 };
 const selectAllFloors = () => {
-  if (selectedFloors.value.length === 3) {
+  if (selectedFloors.value.length === floorData.value.length) {
     selectedFloors.value = [];
   } else {
-    selectedFloors.value = ["1", "2", "3"];
+    selectedFloors.value = floorData.value.map((f) => f.id);
   }
 };
 const toggleFloor = (floor) => {
@@ -101,13 +100,16 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
               All Floors
             </button>
             <button
-              v-for="floor in ['1', '2', '3']"
-              :key="floor"
+              v-for="floor in floorData"
+              :key="floor.id"
               class="tab-btn"
-              :class="{ active: selectedFloors.includes(floor) && selectedFloors.length !== 3 }"
-              @click="toggleFloor(floor)"
+              :class="{
+                active:
+                  selectedFloors.includes(floor.id) && selectedFloors.length !== floorData.length,
+              }"
+              @click="toggleFloor(floor.id)"
             >
-              Floor {{ floor }}
+              Floor {{ floor.id }}
             </button>
           </div>
         </div>

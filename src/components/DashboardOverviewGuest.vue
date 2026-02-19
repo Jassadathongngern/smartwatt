@@ -30,10 +30,10 @@ const selectTimeRange = (range) => {
   timeRange.value = range;
 };
 const selectAllFloors = () => {
-  if (selectedFloors.value.length === 3) {
+  if (selectedFloors.value.length === floorData.value.length) {
     selectedFloors.value = [];
   } else {
-    selectedFloors.value = ["1", "2", "3"];
+    selectedFloors.value = floorData.value.map((f) => f.id);
   }
 };
 const toggleFloor = (floor) => {
@@ -43,6 +43,21 @@ const toggleFloor = (floor) => {
     selectedFloors.value.push(floor);
   }
 };
+
+// Map floorData to object for Chart
+const liveFloorData = computed(() => {
+  const data = {};
+  if (floorData.value) {
+    floorData.value.forEach((f) => {
+      data[f.id] = Number(f.totalPower || 0);
+    });
+  }
+  // Ensure we fallback to 0 for 1,2,3 if missing (to satisfy Chart expectations)
+  if (data[1] === undefined) data[1] = 0;
+  if (data[2] === undefined) data[2] = 0;
+  if (data[3] === undefined) data[3] = 0;
+  return data;
+});
 
 const isLoading = computed(() => gatewayStatus.value === "Connecting...");
 </script>
@@ -88,24 +103,27 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
               All Floors
             </button>
             <button
-              v-for="floor in ['1', '2', '3']"
-              :key="floor"
+              v-for="floor in floorData"
+              :key="floor.id"
               class="tab-btn"
-              :class="{ active: selectedFloors.includes(floor) && selectedFloors.length !== 3 }"
-              @click="toggleFloor(floor)"
+              :class="{
+                active:
+                  selectedFloors.includes(floor.id) && selectedFloors.length !== floorData.length,
+              }"
+              @click="toggleFloor(floor.id)"
             >
-              Floor {{ floor }}
+              Floor {{ floor.id }}
             </button>
           </div>
         </div>
       </div>
 
       <div style="height: 350px; width: 100%; min-width: 0">
-        <!-- ✅ ส่ง allBuildingTotal ไปให้กราฟ -->
+        <!-- ✅ ส่ง liveFloorData (Object) ไปให้กราฟ -->
         <EnergyUsageChart
           :floors="selectedFloors"
           :timeRange="timeRange"
-          :livePower="Number(allBuildingTotal)"
+          :livePower="liveFloorData"
         />
       </div>
     </div>

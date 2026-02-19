@@ -60,20 +60,29 @@ const refreshPage = () => {
 
 <template>
   <!-- Hamburger Button for Mobile -->
+  <!-- External Button (Visible when Sidebar is CLOSED) -->
   <button
-    class="mobile-toggle"
-    :class="{ 'is-sidebar-open': isOpen }"
+    v-if="!isOpen"
+    class="mobile-toggle-external"
     @click="$emit('toggle')"
-    aria-label="Toggle Menu"
+    aria-label="Open Menu"
   >
-    <Menu v-if="!isOpen" :size="24" />
-    <X v-else :size="24" />
+    <Menu :size="24" />
   </button>
 
   <aside class="sidebar" :class="{ 'is-open': isOpen }">
     <div class="logo-container" @click="refreshPage" title="Refresh Page">
       <div class="logo-icon">W</div>
       <div class="logo-text">SmartWatt</div>
+      <!-- Internal Button (Visible when Sidebar is OPEN) -->
+      <button
+        v-if="isOpen"
+        class="mobile-toggle"
+        @click.stop="$emit('toggle')"
+        aria-label="Close Menu"
+      >
+        <X :size="24" />
+      </button>
     </div>
 
     <div v-if="!isAuthReady" class="loading-container">
@@ -350,9 +359,34 @@ const refreshPage = () => {
   border-color: #ef4444;
 }
 
-/* Mobile Toggle -> กลายเป็น Sidebar Toggle */
+/* Sidebar Toggle inside Logo Container (Internal Close Button) */
 .mobile-toggle {
-  display: flex; /* โชว์ทุกหน้าจอ */
+  display: flex;
+  margin-left: auto; /* Push to the right */
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-toggle:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #ef4444; /* Subtle red on hover to indicate close */
+  transform: scale(1.05);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* External Toggle Button (Fixed on Screen when Sidebar Closed) */
+.mobile-toggle-external {
+  display: flex;
   position: fixed;
   top: 15px;
   left: 15px;
@@ -370,41 +404,29 @@ const refreshPage = () => {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* เมื่อ Sidebar เปิด ให้ปุ่มขยับหลบไปทางขวาแถวๆ ขอบ Sidebar พอดี */
-.mobile-toggle.is-sidebar-open {
-  left: 260px;
-  background: #3b82f6;
-  color: white;
-  border-color: #3b82f6;
-}
-
-.mobile-toggle:hover {
+.mobile-toggle-external:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 15px rgba(0, 0, 0, 0.12);
 }
 
-.mobile-toggle:active {
+.mobile-toggle-external:active {
   transform: scale(0.9);
 }
 
 /* Responsive Styles */
 .sidebar {
-  transform: translateX(-100%); /* ซ่อนเป็นค่าเริ่มต้นทุกหน้าจอ */
+  transform: translateX(-100%); /* Hidden by default on mobile */
   box-shadow: 10px 0 30px rgba(0, 0, 0, 0.05);
 }
 
 .sidebar.is-open {
-  transform: translateX(0); /* โชว์เมื่อมี class is-open */
+  transform: translateX(0);
 }
 
 @media (max-width: 1024px) {
-  .mobile-toggle.is-sidebar-open {
-    left: auto;
-    right: 20px; /* บนมือถือให้ปุ่ม X อยู่มุมขวาบนจะได้ไม่บังเมนู */
-    background: white;
-    color: #1e293b;
-    border-color: #f1f5f9;
-  }
+  /* On mobile, sidebar is hidden by default */
+  /* If button is inside sidebar, it is also hidden */
+  /* We might need a separate trigger outside if this button is moved inside */
 }
 
 /* Spinner */
