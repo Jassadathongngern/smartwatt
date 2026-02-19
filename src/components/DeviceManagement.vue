@@ -343,11 +343,39 @@ const getBatteryColor = (level) => {
             </td>
 
             <td class="text-center">
-              <button class="btn-action settings" @click="openEditModal(dev)" title="Config">
-                ⚙️
+              <button class="btn-icon btn-edit" @click="openEditModal(dev)" title="Config">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
               </button>
-              <button class="btn-action delete" @click="openDeleteModal(dev.id)" title="Delete">
-                🗑
+              <button class="btn-icon btn-delete" @click="openDeleteModal(dev.id)" title="Delete">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path
+                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  ></path>
+                </svg>
               </button>
             </td>
           </tr>
@@ -659,25 +687,35 @@ td {
   height: 100%;
   transition: width 0.3s;
 }
-.btn-action {
-  border: none;
-  background: none;
+.btn-icon {
+  border: 1px solid #333;
+  background: white;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-size: 1.2rem;
-  margin: 0 5px;
-  transition: transform 0.2s;
-  padding: 4px;
-  border-radius: 4px;
+  margin: 0 4px;
+  color: #333;
+  transition: all 0.2s ease;
 }
-.btn-action:hover {
-  transform: scale(1.1);
-  background-color: #f1f3f5;
+
+.btn-icon:hover {
+  background-color: #f3f4f6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
-.settings {
-  color: #0d6efd;
+
+.btn-edit:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
 }
-.delete {
-  color: #dc3545;
+
+.btn-delete:hover {
+  border-color: #ef4444;
+  color: #ef4444;
 }
 .modal-overlay {
   position: fixed;

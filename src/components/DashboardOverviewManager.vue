@@ -7,11 +7,10 @@ import { useBuildingData } from "../composables/useBuildingData";
 const {
   gatewayStatus,
   lastUpdate,
-  allBuildingTotal,
+  allBuildingTotal, // ค่านี้จะถูกคำนวณอัตโนมัติจากไฟล์ Logic
   floorData,
   voltage,
   current,
-  // power, // ไม่ได้ใช้ในหน้านี้ (ใช้ allBuildingTotal แทน)
   temperature,
   humidity,
   toggleFloorExpand,
@@ -19,6 +18,7 @@ const {
   cost,
   totalUsage,
   pm25,
+  battery, // ✅ เพิ่ม: ดึงค่าแบตเตอรี่มาใช้งาน
 } = useBuildingData();
 
 // --- Local state for this component (UI-specific) ---
@@ -26,8 +26,17 @@ const selectedFloors = ref(["1", "2", "3"]);
 const timeRange = ref("24H");
 const alertData = ref({ count: 0, message: "System Normal", link: "#" });
 
-// The livePower for the manager chart should be the total of all floors
-const floor3TotalRef = allBuildingTotal; // Or a more specific value if needed, for now, we use the grand total.
+// The livePower for the manager chart
+const liveFloorData = computed(() => {
+  const f1 = floorData.value.find((f) => f.id === "1")?.totalPower || 0;
+  const f2 = floorData.value.find((f) => f.id === "2")?.totalPower || 0;
+  const f3 = floorData.value.find((f) => f.id === "3")?.totalPower || 0;
+  return {
+    1: Number(f1),
+    2: Number(f2),
+    3: Number(f3),
+  };
+});
 
 // --- Local helper functions for UI ---
 const selectTimeRange = (range) => {
@@ -108,7 +117,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
         <EnergyUsageChart
           :floors="selectedFloors"
           :timeRange="timeRange"
-          :livePower="floor3TotalRef"
+          :livePower="liveFloorData"
         />
       </div>
     </div>
@@ -220,6 +229,20 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
             </div>
           </div>
 
+          <div class="stat-card glass-effect" :class="battery < 20 ? 'alert' : 'success'">
+            <p class="label">SENSOR BATTERY</p>
+            <div class="stat-content">
+              <div v-if="isLoading" class="skeleton skeleton-value"></div>
+              <template v-else>
+                <h3>{{ battery }} <small style="font-size: 1rem; color: #666">%</small></h3>
+                <span class="trend" :class="battery < 20 ? 'bad' : 'good'">
+                  {{ battery < 20 ? "Low Battery" : "Healthy" }}
+                  <small>Node ENV-01</small>
+                </span>
+              </template>
+            </div>
+          </div>
+
           <div class="stat-card success glass-effect">
             <p class="label">STATUS</p>
             <div class="stat-content">
@@ -306,7 +329,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
 </template>
 
 <style scoped>
-/* สไตล์เดิม */
+/* CSS เดิมทั้งหมดของคุณ */
 .dashboard-overview {
   padding: 20px;
   background-color: #f8f9fa;

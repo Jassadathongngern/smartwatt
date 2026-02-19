@@ -42,20 +42,32 @@ const form = ref({
 // --- Firebase Real-time Connection ---
 // บรรทัดนี้จะทำงานได้ปกติ เพราะ db ตอนนี้คือ rtdb
 const sRef = dbRef(db, "schedules");
+const isLoading = ref(true);
+const errorMessage = ref("");
 
 onMounted(() => {
-  onValue(sRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const loadedSchedules = Object.keys(data).map((key) => ({
-        id: key,
-        ...data[key],
-      }));
-      schedules.value = loadedSchedules;
-    } else {
-      schedules.value = [];
-    }
-  });
+  onValue(
+    sRef,
+    (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const loadedSchedules = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        schedules.value = loadedSchedules;
+      } else {
+        schedules.value = [];
+      }
+      isLoading.value = false;
+      errorMessage.value = "";
+    },
+    (error) => {
+      console.error("Firebase Error:", error);
+      errorMessage.value = "Error loading data: " + error.message;
+      isLoading.value = false;
+    },
+  );
 });
 
 onUnmounted(() => {
@@ -206,7 +218,7 @@ const confirmDelete = async () => {
             </td>
 
             <td class="text-center action-col">
-              <button class="icon-btn" @click="openEditModal(item)" title="Edit">
+              <button class="btn-icon btn-edit" @click="openEditModal(item)" title="Edit">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="18"
@@ -222,7 +234,7 @@ const confirmDelete = async () => {
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
               </button>
-              <button class="icon-btn" @click="openDeleteModal(item.id)" title="Delete">
+              <button class="btn-icon btn-delete" @click="openDeleteModal(item.id)" title="Delete">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="18"
@@ -242,7 +254,15 @@ const confirmDelete = async () => {
               </button>
             </td>
           </tr>
-          <tr v-if="filteredSchedules.length === 0">
+          <tr v-if="isLoading">
+            <td colspan="6" class="text-center py-4 text-blue-600">⏳ Loading data...</td>
+          </tr>
+          <tr v-else-if="errorMessage">
+            <td colspan="6" class="text-center py-4 text-red-600 font-bold">
+              ⚠️ {{ errorMessage }}
+            </td>
+          </tr>
+          <tr v-else-if="filteredSchedules.length === 0">
             <td colspan="6" class="text-center py-4 text-gray-500">No schedules found.</td>
           </tr>
         </tbody>
@@ -444,24 +464,36 @@ td {
 .btn-add:hover {
   background: #333;
 }
-.icon-btn {
-  border: 1px solid #000;
+
+.btn-icon {
+  border: 1px solid #333;
   background: white;
-  color: #000;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 6px;
-  margin: 0 4px;
-  transition: all 0.2s ease;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  margin: 0 4px;
+  color: #333;
+  transition: all 0.2s ease;
 }
-.icon-btn:hover {
-  background-color: #000;
-  color: #fff;
+
+.btn-icon:hover {
+  background-color: #f3f4f6;
   transform: translateY(-2px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-edit:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.btn-delete:hover {
+  border-color: #ef4444;
+  color: #ef4444;
 }
 .modal-overlay {
   position: fixed;

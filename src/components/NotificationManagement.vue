@@ -9,8 +9,6 @@ import { ref as dbRef, onValue, update, remove, set, off } from "firebase/databa
 const notifications = ref([]);
 const alertSettings = ref({
   batteryThreshold: 20, // ค่า Default
-  enableEmailNoti: false,
-  enableLineNoti: false,
 });
 const showSuccessModal = ref(false);
 const activeTab = ref("history");
@@ -228,23 +226,6 @@ const saveSettings = async () => {
 
       <hr class="my-6 border-gray-100" />
 
-      <h4 class="font-bold text-md mb-4">Notification Channels</h4>
-      <div class="grid grid-cols-2 gap-4">
-        <label class="channel-card" :class="{ active: alertSettings.enableEmailNoti }">
-          <input type="checkbox" v-model="alertSettings.enableEmailNoti" class="hidden" />
-          <span class="icon">📧</span>
-          <span class="text">Email Alert</span>
-          <span class="status">{{ alertSettings.enableEmailNoti ? "On" : "Off" }}</span>
-        </label>
-
-        <label class="channel-card" :class="{ active: alertSettings.enableLineNoti }">
-          <input type="checkbox" v-model="alertSettings.enableLineNoti" class="hidden" />
-          <span class="icon">💬</span>
-          <span class="text">LINE Notify</span>
-          <span class="status">{{ alertSettings.enableLineNoti ? "On" : "Off" }}</span>
-        </label>
-      </div>
-
       <div class="mt-8 flex justify-end">
         <button class="btn-save" @click="saveSettings" :disabled="isSaving">
           {{ isSaving ? "Saving..." : "Save Configuration" }}
@@ -346,23 +327,25 @@ const saveSettings = async () => {
 }
 
 .btn-save {
-  background-color: #2563eb;
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
   color: white;
   border: none;
   padding: 12px 30px;
-  border-radius: 8px;
+  border-radius: 30px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
 }
 .btn-save:hover {
-  background-color: #1d4ed8;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
 }
 .btn-save:disabled {
-  background-color: #93c5fd;
+  background: #93c5fd;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Notification List */
@@ -432,65 +415,39 @@ const saveSettings = async () => {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 8px;
+  height: 10px;
   background: #e5e7eb;
-  border-radius: 5px;
-  background-image: linear-gradient(#3b82f6, #3b82f6);
+  border-radius: 10px;
+  background-image: linear-gradient(90deg, #3b82f6, #60a5fa);
   background-repeat: no-repeat;
   cursor: pointer;
+  margin-top: 10px;
 }
 .range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  height: 24px;
-  width: 24px;
+  height: 28px;
+  width: 28px;
   border-radius: 50%;
   background: #fff;
-  border: 2px solid #3b82f6;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 4px solid #3b82f6;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   cursor: pointer;
   transition: transform 0.1s;
+  margin-top: -9px; /* Adjust to center on track */
 }
 .range-slider::-webkit-slider-thumb:hover {
   transform: scale(1.1);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
 }
-
-/* Channel Cards */
-.channel-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 20px;
-  border: 2px solid #e5e7eb;
-  border-radius: 12px;
+.range-slider::-moz-range-thumb {
+  height: 28px;
+  width: 28px;
+  border-radius: 50%;
+  background: #fff;
+  border: 4px solid #3b82f6;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   cursor: pointer;
-  transition: all 0.2s;
-}
-.channel-card:hover {
-  border-color: #d1d5db;
-}
-.channel-card.active {
-  border-color: #3b82f6;
-  background-color: #eff6ff;
-}
-.channel-card .icon {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
-}
-.channel-card .text {
-  font-weight: 600;
-  color: #374151;
-}
-.channel-card .status {
-  font-size: 0.8rem;
-  color: #9ca3af;
-  margin-top: 4px;
-}
-.channel-card.active .status {
-  color: #2563eb;
-  font-weight: bold;
-}
-.hidden {
-  display: none;
+  transition: transform 0.1s;
 }
 
 /* Empty State */
@@ -583,10 +540,6 @@ const saveSettings = async () => {
 
   .content-card {
     padding: 20px 15px;
-  }
-
-  .grid {
-    grid-template-columns: 1fr;
   }
 
   .noti-item {
