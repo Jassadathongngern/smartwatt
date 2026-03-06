@@ -2,12 +2,13 @@
 import { ref, computed } from "vue";
 import EnergyUsageChart from "./EnergyUsageChart.vue";
 import { useBuildingData } from "../composables/useBuildingData";
+import { DoorClosed } from "lucide-vue-next";
 
 // --- Use the composable to get shared reactive data ---
 const {
   gatewayStatus,
   lastUpdate,
-  allBuildingTotal, // ค่านี้จะถูกคำนวณอัตโนมัติจากไฟล์ Logic
+  allBuildingTotal,
   floorData,
   voltage,
   current,
@@ -18,13 +19,22 @@ const {
   cost,
   totalUsage,
   pm25,
-  battery, // ✅ เพิ่ม: ดึงค่าแบตเตอรี่มาใช้งาน
+  unreadNotiCount,
+  latestNotiMessage,
+  systemHealth,
 } = useBuildingData();
 
 // --- Local state for this component (UI-specific) ---
 const selectedFloors = ref(["1", "2", "3"]);
 const timeRange = ref("24H");
-const alertData = ref({ count: 0, message: "System Normal", link: "#" });
+
+const selectedRoom = ref(null);
+const openRoomDetails = (room) => {
+  selectedRoom.value = room;
+};
+const closeRoomDetails = () => {
+  selectedRoom.value = null;
+};
 
 // The livePower for the manager chart
 const liveFloorData = computed(() => {
@@ -62,7 +72,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
 <template>
   <div class="dashboard-overview">
     <div class="header-bar">
-      <h2>Dashboard Overview (Manager)</h2>
+      <h2>ภาพรวมแดชบอร์ดสำหรับผู้ดูแล</h2>
       <div class="status-bar">
         Gateway:
         <span class="status-badge" :class="gatewayStatus === 'Active' ? 'online' : 'offline'">
@@ -76,7 +86,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
     <div class="chart-section full-width-chart glass-effect">
       <div class="chart-header">
         <div class="header-left">
-          <h3>POWER CONSUMPTION ANALYSIS</h3>
+          <h3>การวิเคราะห์การใช้พลังงานไฟฟ้า</h3>
           <div class="time-controls">
             <button
               v-for="range in ['24H', '7D', '30D']"
@@ -128,143 +138,132 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
       <div class="stats-container">
         <div class="stats-grid">
           <div class="stat-card warning glass-effect">
-            <p class="label">TOTAL BUILDING POWER</p>
+            <p class="label">กำลังไฟฟ้าขณะหนึ่ง</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>
-                  {{ allBuildingTotal }} <small style="font-size: 1rem; color: #666">W</small>
+                  {{ allBuildingTotal }} <small style="font-size: 1rem; color: #666">kW</small>
                 </h3>
-                <span class="trend" :class="allBuildingTotal > 15000 ? 'bad' : 'good'">
-                  {{ allBuildingTotal > 15000 ? "High Load" : "Normal" }}
-                  <small>All Floors</small>
+                <span class="trend" :class="allBuildingTotal > 15 ? 'bad' : 'good'">
+                  {{ allBuildingTotal > 15 ? "โหลดสูง" : "ปกติ" }}
+                  <small>รวมทุกชั้น</small>
                 </span>
               </template>
             </div>
           </div>
 
           <div class="stat-card primary glass-effect">
-            <p class="label">VOLTAGE</p>
+            <p class="label">แรงดันไฟฟ้า</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ voltage }} <small style="font-size: 1rem; color: #666">V</small></h3>
-                <span class="trend neutral">Live<small>Sensor</small></span>
+                <span class="trend neutral">สด <small>(Live)</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card info glass-effect">
-            <p class="label">CURRENT</p>
+            <p class="label">กระแสไฟฟ้า</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ current }} <small style="font-size: 1rem; color: #666">A</small></h3>
-                <span class="trend neutral">Live<small>Sensor</small></span>
+                <span class="trend neutral">สด <small>(Live)</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card success glass-effect">
-            <p class="label">DAILY ENERGY</p>
+            <p class="label">พลังงานไฟฟ้าต่อวัน</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ dailyEnergy }} <small style="font-size: 1rem; color: #666">kWh</small></h3>
-                <span class="trend good">▲ 1%<small>vs yesterday</small></span>
+                <span class="trend neutral">สด <small>Live</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card warning glass-effect">
-            <p class="label">COST</p>
+            <p class="label">ประมาณการค่าไฟฟ้า</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ cost }} <small style="font-size: 1rem; color: #666">฿</small></h3>
-                <span class="trend neutral">Normal<small>Rate</small></span>
+                <span class="trend neutral">อัตรา<small>ปกติ</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card secondary glass-effect">
-            <p class="label">TOTAL USAGE</p>
+            <p class="label">การใช้พลังงานสะสมรวม</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
-                <h3>{{ totalUsage }} <small style="font-size: 1rem; color: #666">MWh</small></h3>
-                <span class="trend neutral">Year<small>to date</small></span>
+                <h3>{{ totalUsage }} <small style="font-size: 1rem; color: #666">kWh</small></h3>
+                <span class="trend neutral">สะสม<small>ตั้งแต่ต้นปี</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card success glass-effect">
-            <p class="label">AVG TEMP</p>
+            <p class="label">อุณหภูมิเฉลี่ย</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ temperature }} <small style="font-size: 1rem; color: #666">°C</small></h3>
-                <span class="trend good">Good<small>Cooling</small></span>
+                <span class="trend good">ความเย็น<small>เหมาะสม</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card info glass-effect">
-            <p class="label">HUMIDITY</p>
+            <p class="label">ความชื้นสัมพัทธ์</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ humidity }} <small style="font-size: 1rem; color: #666">%</small></h3>
-                <span class="trend neutral">Optimal<small>Range</small></span>
+                <span class="trend neutral">ระดับ<small>เหมาะสม</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card info glass-effect">
-            <p class="label">PM2.5</p>
+            <p class="label">ค่าฝุ่นละออง PM2.5</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
                 <h3>{{ pm25 }} <small style="font-size: 1rem; color: #666">µg/m³</small></h3>
-                <span class="trend good">Safe<small>Air Quality</small></span>
-              </template>
-            </div>
-          </div>
-
-          <div class="stat-card glass-effect" :class="battery < 20 ? 'alert' : 'success'">
-            <p class="label">SENSOR BATTERY</p>
-            <div class="stat-content">
-              <div v-if="isLoading" class="skeleton skeleton-value"></div>
-              <template v-else>
-                <h3>{{ battery }} <small style="font-size: 1rem; color: #666">%</small></h3>
-                <span class="trend" :class="battery < 20 ? 'bad' : 'good'">
-                  {{ battery < 20 ? "Low Battery" : "Healthy" }}
-                  <small>Node ENV-01</small>
-                </span>
+                <span class="trend good">คุณภาพอากาศ<small>ปลอดภัย</small></span>
               </template>
             </div>
           </div>
 
           <div class="stat-card success glass-effect">
-            <p class="label">STATUS</p>
+            <p class="label">สถานะการทำงาน</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
-                <h3>100%</h3>
-                <span class="trend good">Online<small>System OK</small></span>
+                <h3>{{ systemHealth }}%</h3>
+                <span class="trend" :class="systemHealth >= 80 ? 'good' : 'bad'"
+                  >{{ systemHealth >= 80 ? "ออนไลน์" : "มีปัญหา" }}<small>ระบบปกติ</small></span
+                >
               </template>
             </div>
           </div>
 
           <div class="stat-card alert glass-effect">
-            <p class="label">ALERTS</p>
+            <p class="label">การแจ้งเตือน</p>
             <div class="stat-content">
               <div v-if="isLoading" class="skeleton skeleton-value"></div>
               <template v-else>
-                <h3>{{ alertData.count }}</h3>
-                <a :href="alertData.link" class="alert-btn-soft">
-                  ⚠️ {{ alertData.message }} <span class="arrow">→</span>
-                </a>
+                <h3>{{ unreadNotiCount }}</h3>
+                <router-link to="/notifications" class="alert-btn-soft">
+                  <span v-if="unreadNotiCount > 0">⚠️</span><span v-else>✅</span>
+                  {{ latestNotiMessage }} <span class="arrow">→</span>
+                </router-link>
               </template>
             </div>
           </div>
@@ -273,7 +272,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
 
       <div class="hierarchy-area glass-effect">
         <div class="area-header">
-          <h3>Building Status</h3>
+          <h3>สถานะอาคารรายชั้น</h3>
         </div>
         <div class="floor-list">
           <template v-if="isLoading">
@@ -294,7 +293,7 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
             <div class="floor-header" @click="toggleFloorExpand(floor.id)">
               <div class="fh-left">
                 <span class="toggle-icon">{{ floor.isExpanded ? "▼" : "▶" }}</span>
-                <span class="floor-name">Floor {{ floor.id }}</span>
+                <span class="floor-name">ชั้น {{ floor.id }}</span>
               </div>
               <div class="fh-right">
                 <span class="floor-total">{{ floor.totalPower }} kW</span>
@@ -302,9 +301,14 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
               </div>
             </div>
             <div class="room-list" v-if="floor.isExpanded">
-              <div v-for="room in floor.rooms" :key="room.name" class="room-item">
+              <div
+                v-for="room in floor.rooms"
+                :key="room.name"
+                class="room-item clickable"
+                @click="openRoomDetails(room)"
+              >
                 <div class="room-info">
-                  <span class="room-icon">🚪</span>
+                  <span class="room-icon"><DoorClosed :size="16" /></span>
                   <div>
                     {{ room.name }}
                     <span style="font-size: 0.7em; color: #aaa; margin-left: 5px"
@@ -313,7 +317,10 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
                   </div>
                 </div>
                 <div class="room-stat">
-                  <span>{{ room.power }} kW</span>
+                  <span v-if="room.power !== null">{{ room.power }} kW</span>
+                  <span v-else-if="room.temperature !== null" class="env-brief"
+                    >{{ room.temperature }}°C</span
+                  >
                   <span class="mini-dot" :class="room.status"></span>
                 </div>
               </div>
@@ -321,9 +328,59 @@ const isLoading = computed(() => gatewayStatus.value === "Connecting...");
           </div>
         </div>
         <div class="status-legend">
-          <span><span class="mini-dot online"></span> Normal</span>
-          <span><span class="mini-dot warning"></span> Warning</span>
-          <span><span class="mini-dot offline"></span> Offline</span>
+          <span><span class="mini-dot online"></span> ปกติ (Normal)</span>
+          <span><span class="mini-dot warning"></span> แจ้งเตือน (Warning)</span>
+          <span><span class="mini-dot offline"></span> ออฟไลน์ (Offline)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Room Details Modal -->
+    <div v-if="selectedRoom" class="modal-overlay" @click="closeRoomDetails">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>ห้อง {{ selectedRoom.name }}</h3>
+          <button class="close-btn" @click="closeRoomDetails">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="device-id-text">
+            <strong>Device ID:</strong> {{ selectedRoom.deviceId }} |
+            <span class="status-badge" :class="selectedRoom.status">{{ selectedRoom.status }}</span>
+          </p>
+
+          <div class="stats-grid-modal">
+            <div v-if="selectedRoom.power !== null" class="stat-box-modal">
+              <span class="modal-icon">⚡</span>
+              <div class="modal-data">
+                <span class="label">การใช้ไฟฟ้า</span>
+                <span class="value">{{ selectedRoom.power }} kW</span>
+              </div>
+            </div>
+
+            <div v-if="selectedRoom.temperature !== null" class="stat-box-modal">
+              <span class="modal-icon">🌡️</span>
+              <div class="modal-data">
+                <span class="label">อุณหภูมิ</span>
+                <span class="value">{{ selectedRoom.temperature }} °C</span>
+              </div>
+            </div>
+
+            <div v-if="selectedRoom.humidity !== null" class="stat-box-modal">
+              <span class="modal-icon">💧</span>
+              <div class="modal-data">
+                <span class="label">ความชื้น</span>
+                <span class="value">{{ selectedRoom.humidity }} %</span>
+              </div>
+            </div>
+
+            <div v-if="selectedRoom.pm25 !== null" class="stat-box-modal">
+              <span class="modal-icon">💨</span>
+              <div class="modal-data">
+                <span class="label">ฝุ่น PM2.5</span>
+                <span class="value">{{ selectedRoom.pm25 }} µg/m³</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -370,6 +427,10 @@ h2 {
 }
 .status-badge.offline {
   background-color: #dc3545;
+}
+.status-badge.sleep,
+.status-badge.pending-sleep {
+  background-color: #6f42c1;
 }
 
 /* Chart */
@@ -470,7 +531,7 @@ h2 {
 }
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 15px;
 }
 
@@ -480,13 +541,12 @@ h2 {
   padding: 15px 20px;
   border-radius: 12px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
-  border-left: 4px solid #ccc;
+  border: 1px solid #f0f0f0;
+  border-left: 8px solid #ccc;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   transition: transform 0.2s;
-  border: 1px solid #f0f0f0;
-  border-left-width: 4px;
   animation: fadeInUp 0.5s ease-out backwards;
 }
 /* Stagger Animation for each child */
@@ -698,6 +758,11 @@ h2 {
 .status-dot.offline {
   background: #dc3545;
 }
+.status-dot.sleep,
+.status-dot.pending-sleep {
+  background: #6f42c1;
+  box-shadow: 0 0 5px #6f42c1;
+}
 .room-list {
   background: white;
   border-top: 1px solid #e9ecef;
@@ -718,6 +783,12 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.room-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
 }
 .room-stat {
   display: flex;
@@ -742,6 +813,10 @@ h2 {
 .mini-dot.offline {
   background: #dc3545;
 }
+.mini-dot.sleep,
+.mini-dot.pending-sleep {
+  background: #6f42c1;
+}
 .status-legend {
   margin-top: 15px;
   display: flex;
@@ -749,6 +824,120 @@ h2 {
   gap: 15px;
   font-size: 0.8rem;
   color: #666;
+}
+
+/* Room Modal Styles */
+.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.clickable:hover {
+  background-color: #f8f9fa;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  transform: translateY(0);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #888;
+}
+
+.close-btn:hover {
+  color: #d9534f;
+}
+
+.device-id-text {
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.stats-grid-modal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.stat-box-modal {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e9ecef;
+}
+
+.modal-icon {
+  font-size: 1.5rem;
+}
+
+.modal-data {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-data .label {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.modal-data .value {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #333;
 }
 @keyframes slideDown {
   from {
@@ -793,7 +982,7 @@ h2 {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 3px solid rgba(255, 255, 255, 0.3);
 }
 
 /* Skeleton Loading */

@@ -137,6 +137,7 @@ const currentMonthName = computed(() =>
 );
 
 const fetchMonthData = async () => {
+  console.log("[Calendar] fetchMonthData triggered");
   isLoading.value = true;
   monthlyData.value = {};
 
@@ -146,24 +147,52 @@ const fetchMonthData = async () => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0, 23, 59, 59);
 
+    // Helper: format Date to "YYYY-MM-DD HH:MM:SS" (Thai Timezone)
+    const formatToThaiString = (date) => {
+      const pad = (num) => String(num).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    };
+
+    const startStr = formatToThaiString(startDate);
+    const endStr = formatToThaiString(endDate);
+
     const q = query(
       collection(db, "measurements"),
-      where("timestamp", ">=", startDate),
-      where("timestamp", "<=", endDate),
+      where("timestamp", ">=", startStr),
+      where("timestamp", "<=", endStr),
       orderBy("timestamp", "asc"),
     );
 
     const snapshot = await getDocs(q);
     const tempDaily = {};
 
+    if (snapshot.empty) {
+      console.warn(
+        `[Calendar] No records found for this period (${startDate.toISOString()} to ${endDate.toISOString()})`,
+      );
+    } else {
+      console.log(`[Calendar] Found ${snapshot.size} documents in Firestore.`);
+    }
+
     snapshot.forEach((doc) => {
       const data = doc.data();
-      if (!data.timestamp) return;
+      let recordDate;
+      if (data.timestamp && data.timestamp.toDate) {
+        recordDate = data.timestamp.toDate();
+      } else if (data.timestamp) {
+        const isoStr = data.timestamp.toString().includes(" ")
+          ? data.timestamp.replace(" ", "T")
+          : data.timestamp;
+        recordDate = new Date(isoStr);
+      } else {
+        return;
+      }
 
-      const dateObj = data.timestamp.toDate();
-      const y = dateObj.getFullYear();
-      const m = String(dateObj.getMonth() + 1).padStart(2, "0");
-      const d = String(dateObj.getDate()).padStart(2, "0");
+      if (isNaN(recordDate.getTime())) return;
+
+      const y = recordDate.getFullYear();
+      const m = String(recordDate.getMonth() + 1).padStart(2, "0");
+      const d = String(recordDate.getDate()).padStart(2, "0");
       const dateKey = `${y}-${m}-${d}`;
 
       if (!tempDaily[dateKey]) {
@@ -179,26 +208,26 @@ const fetchMonthData = async () => {
         };
       }
 
-      const power = Number(data.power || 0);
+      const power = Number(data.total_power || data.power || data.watt || data.p || data.w || 0);
       if (power > 0) {
         tempDaily[dateKey].sumPower += power;
         tempDaily[dateKey].countPower++;
       }
 
       const temp = Number(data.temperature || data.temp || 0);
-      if (temp > 0) {
+      if (temp !== 0) {
         tempDaily[dateKey].sumTemp += temp;
         tempDaily[dateKey].countTemp++;
       }
 
       const hum = Number(data.humidity || data.hum || 0);
-      if (hum > 0) {
+      if (hum !== 0) {
         tempDaily[dateKey].sumHum += hum;
         tempDaily[dateKey].countHum++;
       }
 
-      const dust = Number(data.pm25 || data.dust || 0);
-      if (dust > 0) {
+      const dust = Number(data.pm2_5 || data.pm25 || data.dust || 0);
+      if (dust !== 0) {
         tempDaily[dateKey].sumDust += dust;
         tempDaily[dateKey].countDust++;
       }
@@ -321,10 +350,18 @@ const openDayModal = async (day) => {
     const start = new Date(day.dateStr + "T00:00:00");
     const end = new Date(day.dateStr + "T23:59:59");
 
+    const formatToThaiString = (date) => {
+      const pad = (num) => String(num).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    };
+
+    const startStr = formatToThaiString(start);
+    const endStr = formatToThaiString(end);
+
     const q = query(
       collection(db, "measurements"),
-      where("timestamp", ">=", start),
-      where("timestamp", "<=", end),
+      where("timestamp", ">=", startStr),
+      where("timestamp", "<=", endStr),
       orderBy("timestamp", "asc"),
     );
 
@@ -342,7 +379,20 @@ const openDayModal = async (day) => {
 
     snapshot.forEach((doc) => {
       const d = doc.data();
-      const h = d.timestamp.toDate().getHours();
+      let recordDate;
+      if (d.timestamp && d.timestamp.toDate) {
+        recordDate = d.timestamp.toDate();
+      } else if (d.timestamp) {
+        const isoStr = d.timestamp.toString().includes(" ")
+          ? d.timestamp.replace(" ", "T")
+          : d.timestamp;
+        recordDate = new Date(isoStr);
+      } else {
+        return;
+      }
+      if (isNaN(recordDate.getTime())) return;
+
+      const h = recordDate.getHours();
       hourlySum[h] += Number(d.power || 0);
       hourlyCount[h]++;
 

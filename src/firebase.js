@@ -1,31 +1,34 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getDatabase } from "firebase/database"; // ท่อเดิม
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore"; // ท่อใหม่
+import { getDatabase } from "firebase/database";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
+import { getAnalytics } from "firebase/analytics";
 
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDkeraOC7VoIFfUnTAYYtro3RedRGWOjgo",
-  authDomain: "smartwattproject.firebaseapp.com",
-  databaseURL: "https://smartwattproject-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "smartwattproject",
-  storageBucket: "smartwattproject.firebasestorage.app",
-  messagingSenderId: "938006945198",
-  appId: "1:938006945198:web:d4407c06df3a6bd170fc3f",
-  measurementId: "G-BJZ05YDNG1",
+  apiKey: "AIzaSyBQr_SkBqgtXdr0AjZ9iJKDWn8KbpoX938",
+  authDomain: "smartwattproject-2903a.firebaseapp.com",
+  databaseURL: "https://smartwattproject-2903a-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "smartwattproject-2903a",
+  storageBucket: "smartwattproject-2903a.firebasestorage.app",
+  messagingSenderId: "59606679605",
+  appId: "1:59606679605:web:688aacf3d2a5a2561d317c",
+  measurementId: "G-KZJ1XPFL8E",
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize Services
 const auth = getAuth(app);
 const rtdb = getDatabase(app);
-const db = getFirestore(app);
-
-// ✅ 2. Offline Persistence (Firestore)
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code == "failed-precondition") {
-    console.warn("Persistence failed: Multiple tabs open.");
-  } else if (err.code == "unimplemented") {
-    console.warn("Persistence not supported by browser.");
-  }
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });
+const analytics = getAnalytics(app);
 
-export { auth, db, rtdb };
+export { auth, db, rtdb, analytics };

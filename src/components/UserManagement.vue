@@ -72,11 +72,11 @@ const deleteUser = async (userId) => {
   <div class="page-container">
     <div class="header-row">
       <div>
-        <h1 class="text-2xl font-bold text-gray-800">User Management</h1>
+        <h1 class="text-2xl font-bold text-gray-800">จัดการผู้ใช้งาน (User Management)</h1>
         <p class="text-sm text-gray-500">จัดการผู้ใช้งานและกำหนดสิทธิ์แอดมิน</p>
       </div>
       <div class="stats-badge">
-        Total Users: <strong>{{ users.length }}</strong>
+        ผู้ใช้งานทั้งหมด: <strong>{{ users.length }}</strong>
       </div>
     </div>
 
@@ -88,10 +88,10 @@ const deleteUser = async (userId) => {
         <table>
           <thead>
             <tr>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Current Role</th>
-              <th>Actions</th>
+              <th>ชื่อผู้ใช้งาน</th>
+              <th>อีเมล</th>
+              <th>สิทธิ์ปัจจุบัน</th>
+              <th>จัดการ</th>
             </tr>
           </thead>
           <tbody>
@@ -113,7 +113,7 @@ const deleteUser = async (userId) => {
                   <button
                     @click="toggleRole(user)"
                     class="btn-icon btn-edit"
-                    :title="user.role_id == 1 ? 'Demote to User' : 'Promote to Admin'"
+                    :title="user.role_id == 1 ? 'เปลี่ยนเป็น User' : 'เปลี่ยนเป็น Admin'"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -134,7 +134,7 @@ const deleteUser = async (userId) => {
                   <button
                     @click="deleteUser(user.id)"
                     class="btn-icon btn-delete"
-                    title="Delete User"
+                    title="ลบผู้ใช้งาน"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"

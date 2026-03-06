@@ -1,15 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { rtdb as db } from "../firebase";
-import {
-  ref as dbRef,
-  onValue,
-  remove,
-  update,
-  push,
-  off,
-  runTransaction,
-} from "firebase/database";
+import { ref as dbRef, onValue, update, off, runTransaction, set } from "firebase/database";
+import RoomManagerModal from "./RoomManagerModal.vue";
 
 // --- State ---
 const devices = ref([]);
@@ -22,32 +15,75 @@ const filterFloor = ref("All");
 const isModalOpen = ref(false);
 const isAddModalOpen = ref(false);
 const isDeleteModalOpen = ref(false);
+const isSuccessModalOpen = ref(false);
+const successMessage = ref("");
+const showRoomListModal = ref(false);
+
+const isWarningModalOpen = ref(false);
+const warningTitle = ref("");
+const warningMessage = ref("");
+
+const showWarning = (title, msg) => {
+  warningTitle.value = title;
+  warningMessage.value = msg;
+  isWarningModalOpen.value = true;
+};
+
+// ** Add Room Modal State **
+const showAddRoomModal = ref(false);
+
+const currentTime = ref(Date.now());
+let timeInterval = null;
 
 const selectedDevice = ref(null);
 const deviceToDelete = ref(null);
 
+// --- State สำหรับ Channel / Expand ---
+const deviceMappings = ref({});
+const expandedRows = ref([]); // เก็บ id ของ device ที่ถูกกางออก
+const isChannelModalOpen = ref(false);
+const selectedChannelDevId = ref(null);
+const selectedChannelId = ref(null);
+const tempRoom = ref("");
+const tempLabel = ref("");
+
+const toggleExpand = (id) => {
+  const index = expandedRows.value.indexOf(id);
+  if (index > -1) {
+    expandedRows.value.splice(index, 1);
+  } else {
+    expandedRows.value.push(id);
+  }
+};
+
 // State สำหรับแก้ไข
 const tempName = ref("");
-const tempRate = ref("");
+const tempRate = ref(5);
+const tempDeviceType = ref("");
+const tempAssignedRoom = ref("");
+const tempAssignedChannel = ref("ch1");
 const ratePresets = [1, 5, 10, 15, 30, 60];
 
 // Form for Add Device
 const newDeviceForm = ref({
   name: "",
   devEui: "",
-  type: "Meter",
-  status: "Active",
-  sendRate: 5,
-  installDate: new Date().toISOString().split("T")[0],
-  description: "",
+  appKey: "",
+  deviceProfileId: "1fc24fd7-5148-453b-9ce5-abfd51e2c6b4",
 });
 
 // --- Firebase References ---
 const devicesRef = dbRef(db, "devices");
 const configRef = dbRef(db, "building_configs");
+const mappingsRef = dbRef(db, "device_mappings");
 
 // --- 1. Fetch Data ---
 onMounted(() => {
+  // Update time every minute to trigger reactive offline checks
+  timeInterval = setInterval(() => {
+    currentTime.value = Date.now();
+  }, 60000);
+
   onValue(devicesRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
@@ -65,91 +101,238 @@ onMounted(() => {
   onValue(configRef, (snapshot) => {
     buildingConfig.value = snapshot.val() || {};
   });
+
+  onValue(mappingsRef, (snapshot) => {
+    deviceMappings.value = snapshot.val() || {};
+  });
 });
 
 onUnmounted(() => {
+  if (timeInterval) clearInterval(timeInterval);
   off(devicesRef);
   off(configRef);
+  off(mappingsRef);
 });
 
 // --- Helper: Find Room ---
 const getDeviceLocation = (deviceId) => {
-  if (!buildingConfig.value) return { room: "Unknown", floor: "-" };
+  const mappings = deviceMappings.value[deviceId] || {};
+  const mappedRooms = Object.values(mappings).filter(Boolean);
 
-  for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
-    if (floorData.rooms) {
-      for (const [roomName, roomData] of Object.entries(floorData.rooms)) {
-        if (roomData.deviceId === deviceId) {
-          return {
-            room: roomName,
-            floor: floorKey.replace("floor_", ""),
-          };
-        }
+  if (mappedRooms.length === 0) {
+    return { room: "ยังไม่ได้ระบุ", floor: "-" };
+  }
+
+  if (mappedRooms.length > 1) {
+    return { room: `ติดตั้งใน ${mappedRooms.length} ห้อง`, floor: "หลายชั้น" };
+  }
+
+  const roomName = mappedRooms[0];
+  let floorResult = "-";
+
+  if (buildingConfig.value) {
+    for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
+      if (floorData.rooms && floorData.rooms[roomName]) {
+        floorResult = floorKey.replace("floor_", "");
+        break;
       }
     }
   }
-  return { room: "Unassigned", floor: "-" };
+
+  return {
+    room: roomName,
+    floor: floorResult,
+  };
 };
+
+const availableRooms = computed(() => {
+  if (!buildingConfig.value) return [];
+  const rooms = [];
+  for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
+    if (floorData.rooms) {
+      for (const [roomName] of Object.entries(floorData.rooms)) {
+        rooms.push({
+          label: `(Fl.${floorKey.replace("floor_", "")}) ${roomName}`,
+          value: roomName,
+          floorId: floorKey,
+        });
+      }
+    }
+  }
+  return rooms.sort((a, b) => a.label.localeCompare(b.label));
+});
 
 // --- 2. Filter Logic ---
 const filteredDevices = computed(() => {
+  const now = currentTime.value;
   return devices.value
     .map((dev) => {
       const location = getDeviceLocation(dev.id);
-      return { ...dev, roomName: location.room, floorNum: location.floor };
+
+      // Compute dynamic status
+      const rateMin = dev.sendRate ? parseInt(dev.sendRate.toString().replace(" min", "")) : 5;
+      const timeoutMs = rateMin * 3 * 60 * 1000;
+      // Handle last_update which might be ISO string or timestamp
+      let lastUpdate = 0;
+      if (dev.last_update) {
+        // If it's a string, try parsing it
+        if (typeof dev.last_update === "string") {
+          lastUpdate = new Date(dev.last_update).getTime();
+        } else {
+          lastUpdate = dev.last_update;
+        }
+      }
+
+      const isOfflineText = lastUpdate ? now - lastUpdate > timeoutMs : true;
+      const isSleeping =
+        dev.status === "Sleep" ||
+        dev.status === "Pending Sleep" ||
+        dev.status === "Pending Interval Update";
+
+      let computedStatus = dev.status;
+      if (isOfflineText && dev.status === "Active" && !isSleeping) {
+        computedStatus = "Inactive";
+      }
+
+      // ปรับปรุงการแสดงผลสถานะที่กำลังรอ (Pending) ให้สื่อความหมายมากขึ้นใน UI
+      if (computedStatus === "Pending Sleep") {
+        computedStatus = "Pending Interval Update";
+      }
+
+      return { ...dev, roomName: location.room, floorNum: location.floor, computedStatus };
     })
     .filter((dev) => {
-      const name = (dev.name || "").toLowerCase();
+      const name = (dev.name || dev.device_name || "").toLowerCase();
       const room = (dev.roomName || "").toLowerCase();
       const devId = (dev.id || "").toLowerCase();
       const search = searchQuery.value.toLowerCase();
 
-      const matchSearch = name.includes(search) || room.includes(search) || devId.includes(search);
-      const matchStatus = filterStatus.value === "All" || dev.status === filterStatus.value;
+      // Get all mapped sub-rooms for this device to include in search
+      const mappings = deviceMappings.value[dev.id] || {};
+      const mappedSubRooms = Object.values(mappings).filter(Boolean).join(" ").toLowerCase();
+
+      const matchSearch =
+        name.includes(search) ||
+        room.includes(search) ||
+        devId.includes(search) ||
+        mappedSubRooms.includes(search);
+      const matchStatus = filterStatus.value === "All" || dev.computedStatus === filterStatus.value;
       const matchFloor = filterFloor.value === "All" || dev.floorNum === filterFloor.value;
 
       return matchSearch && matchStatus && matchFloor;
     });
 });
 
+const isPowerNode = (dev) => {
+  const name = dev.name || dev.device_name || "";
+  const type = dev.type || "";
+  const id = dev.id || "";
+  return (
+    dev.deviceProfileId === "1fc24fd7-5148-453b-9ce5-abfd51e2c6b4" ||
+    type.toUpperCase().includes("POWER") ||
+    name.toUpperCase().includes("POWER") ||
+    id.toUpperCase().includes("POWER")
+  );
+};
+
+const getDeviceType = (dev) => {
+  if (dev.deviceProfileId === "1fc24fd7-5148-453b-9ce5-abfd51e2c6b4" || isPowerNode(dev)) {
+    return "โหนดวัดพลังงานไฟฟ้า";
+  }
+  if (dev.deviceProfileId === "32eb3fc4-ae51-46f8-9ef1-a2917e0df79e") {
+    return "โหนดวัดอุณหภูมิและความชื้น";
+  }
+  if (dev.type) {
+    return dev.type; // Fallback to raw type if exists
+  }
+  return "❔ Unknown Type";
+};
+
 // --- Actions: Edit Config (Name & Rate) ---
 const openEditModal = (device) => {
   selectedDevice.value = device;
-  tempName.value = device.name || "";
+  tempName.value = device.name || device.device_name || "";
   tempRate.value = device.sendRate ? parseInt(device.sendRate.toString().replace(" min", "")) : 5;
+  tempDeviceType.value = device.deviceProfileId || "";
+
+  // Load existing mapping if any
+  tempAssignedRoom.value = "";
+  tempAssignedChannel.value = "ch1";
+  if (deviceMappings.value && deviceMappings.value[device.id]) {
+    const mappings = deviceMappings.value[device.id];
+    // Find the first assigned channel to populate the modal
+    const assignedCh = Object.keys(mappings).find((ch) => mappings[ch]);
+    if (assignedCh) {
+      tempAssignedChannel.value = assignedCh;
+      tempAssignedRoom.value = mappings[assignedCh];
+    }
+  }
+
   isModalOpen.value = true;
 };
 
-// ✅ ฟังก์ชันบันทึกการตั้งค่า (พร้อมระบบ Concurrency Control)
+// ✅ อัปเดต: ฟังก์ชันบันทึกการตั้งค่า เพิ่ม pending_command สั่งให้ Bridge ยิง Downlink และบันทึก Room Mapping
 const saveConfig = async () => {
-  // 1. ตรวจสอบชื่อ: ถ้าว่าง ให้เอา defaultName หรือชื่อเดิมมาใช้ (Auto-Recovery)
   const nameToSave =
     tempName.value.trim() === ""
-      ? selectedDevice.value.defaultName || selectedDevice.value.name || "Unknown Device"
+      ? selectedDevice.value.defaultName ||
+        selectedDevice.value.name ||
+        selectedDevice.value.device_name ||
+        "Unknown Device"
       : tempName.value;
 
   if (selectedDevice.value && tempRate.value) {
     try {
-      // ✅ 4. Concurrency Control: ใช้ runTransaction แทน update
+      // 1. Update device config
       await runTransaction(dbRef(db, `devices/${selectedDevice.value.id}`), (currentData) => {
         if (currentData === null) {
           return {
             name: nameToSave,
             defaultName: nameToSave,
+            deviceProfileId: tempDeviceType.value || null,
             sendRate: tempRate.value + " min",
-            last_update: Date.now(),
+            pending_command: "sleep",
+            sleep_duration_minutes: parseInt(tempRate.value),
+            status: "Pending Sleep",
           };
         } else {
-          // ถ้ามีข้อมูลอยู่แล้ว ให้ merge ค่าใหม่เข้าไป
           return {
             ...currentData,
             name: nameToSave,
             defaultName: currentData.defaultName || nameToSave,
+            deviceProfileId: tempDeviceType.value || currentData.deviceProfileId || null,
             sendRate: tempRate.value + " min",
-            last_update: Date.now(),
+            pending_command: "sleep",
+            sleep_duration_minutes: parseInt(tempRate.value),
+            status: "Pending Sleep",
           };
         }
       });
+
+      // 2. Update room mapping
+      const devId = selectedDevice.value.id;
+      const channelVal = tempAssignedChannel.value;
+      const roomVal = tempAssignedRoom.value;
+
+      if (roomVal) {
+        const selectedRoomObj = availableRooms.value.find((r) => r.value === roomVal);
+        if (selectedRoomObj) {
+          // Update device_mappings
+          await update(dbRef(db, `device_mappings/${devId}`), {
+            [channelVal]: roomVal,
+          });
+
+          // Update building_configs
+          await update(dbRef(db, `building_configs/${selectedRoomObj.floorId}/rooms/${roomVal}`), {
+            deviceId: devId,
+          });
+        }
+      } else {
+        // Unassigned selected, clear mapping for this channel
+        await update(dbRef(db, `device_mappings/${devId}`), {
+          [channelVal]: null,
+        });
+      }
 
       isModalOpen.value = false;
     } catch (error) {
@@ -160,13 +343,66 @@ const saveConfig = async () => {
   }
 };
 
-// ✅ ฟังก์ชันสั่ง Sleep
+const openChannelModal = (dev, channelId) => {
+  selectedChannelDevId.value = dev.id;
+  selectedChannelId.value = channelId;
+  const currentRoom = deviceMappings.value[dev.id]?.[channelId];
+  const currentLabel = deviceMappings.value[dev.id]?.[`${channelId}_label`];
+  tempRoom.value = currentRoom || "";
+  tempLabel.value = currentLabel || "";
+  isChannelModalOpen.value = true;
+};
+
+const saveChannelConfig = async () => {
+  const devId = selectedChannelDevId.value;
+  const channelVal = selectedChannelId.value;
+  const roomVal = tempRoom.value;
+  const labelVal = tempLabel.value.trim();
+
+  try {
+    if (roomVal) {
+      const selectedRoomObj = availableRooms.value.find((r) => r.value === roomVal);
+      if (selectedRoomObj) {
+        // Update device_mappings
+        const mappingUpdate = {
+          [channelVal]: roomVal,
+        };
+        // Save or clear label
+        if (labelVal) {
+          mappingUpdate[`${channelVal}_label`] = labelVal;
+        } else {
+          mappingUpdate[`${channelVal}_label`] = null; // Remove if empty
+        }
+
+        await update(dbRef(db, `device_mappings/${devId}`), mappingUpdate);
+
+        // Update building_configs
+        await update(dbRef(db, `building_configs/${selectedRoomObj.floorId}/rooms/${roomVal}`), {
+          deviceId: devId,
+        });
+      }
+    } else {
+      // Unassign: remove mapping and its label
+      await update(dbRef(db, `device_mappings/${devId}`), {
+        [channelVal]: null,
+        [`${channelVal}_label`]: null,
+      });
+      // We do not remove from building_configs explicitly here as it could be reassigned
+      // A more robust backend would clean it up, but for now we trust mappings.
+    }
+    isChannelModalOpen.value = false;
+  } catch (e) {
+    showWarning("Error mapping channel", e.message);
+  }
+};
+
+// ฟังก์ชันสั่ง Sleep
 const orderSleep = async () => {
   if (!selectedDevice.value) return;
 
   if (
     !confirm(
-      `ต้องการสั่งให้ ${tempName.value || selectedDevice.value.name} เข้าโหมด Sleep ใช่หรือไม่?`,
+      `ต้องการสั่งให้ ${tempName.value || selectedDevice.value.name || selectedDevice.value.device_name} เข้าโหมด Sleep ใช่หรือไม่?`,
     )
   )
     return;
@@ -174,8 +410,8 @@ const orderSleep = async () => {
   try {
     await update(dbRef(db, `devices/${selectedDevice.value.id}`), {
       pending_command: "sleep",
+      sleep_duration_minutes: parseInt(tempRate.value) || 5,
       status: "Pending Sleep",
-      last_update: Date.now(),
     });
 
     isModalOpen.value = false;
@@ -184,44 +420,200 @@ const orderSleep = async () => {
   }
 };
 
+// ฟังก์ชันสั่ง Wake
+const orderWake = async () => {
+  showWarning(
+    "ยังไม่รองรับ",
+    "เฟิร์มแวร์ปัจจุบันยังไม่รองรับคำสั่ง Wake แบบทันที อุปกรณ์ LoRa Class A จะรับคำสั่งได้เฉพาะหลัง uplink เท่านั้น",
+  );
+};
+
+// --- Actions: Auto Generate Keys & Copy ---
+const autoGenerateKeys = () => {
+  const generateRandomHex = (length) => {
+    let result = "";
+    const characters = "0123456789abcdef";
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+  };
+
+  newDeviceForm.value.devEui = "fc4f7493" + generateRandomHex(8);
+  newDeviceForm.value.appKey = generateRandomHex(32);
+};
+
+const copySuccess = ref(false);
+
+const copyToESP32 = async () => {
+  const devName = newDeviceForm.value.name || "SmartWatt_Node_1";
+  const devEui = newDeviceForm.value.devEui || "0000000000000000";
+  const appKey = newDeviceForm.value.appKey || "00000000000000000000000000000000";
+
+  // Format hex string to C array format e.g. "DF4C99..." -> "0xDF, 0x4C, 0x99..."
+  const formatHexToCArray = (hexStr, reverse = false) => {
+    const pairs = hexStr.toLowerCase().match(/.{1,2}/g) || [];
+    if (reverse) pairs.reverse();
+    return pairs.map((p) => `0x${p.toUpperCase()}`).join(", ");
+  };
+
+  const code = `
+#define DEVICE_NAME  "${devName}"
+
+// LSB Format
+static const u1_t PROGMEM DEVEUI[8] = { ${formatHexToCArray(devEui, true)} };
+void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8); }
+
+static const u1_t PROGMEM APPEUI[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8); }
+
+// MSB Format
+static const u1_t PROGMEM APPKEY[16] = { ${formatHexToCArray(appKey)} };
+void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
+`.trim();
+
+  try {
+    await navigator.clipboard.writeText(code);
+    copySuccess.value = true;
+    setTimeout(() => {
+      copySuccess.value = false;
+    }, 2000);
+  } catch (err) {
+    alert("Failed to copy code: " + err);
+  }
+};
+
+const copiedDeviceId = ref(null);
+
+const copyExistingToESP32 = async (device) => {
+  const devName = device.name || device.id || "SmartWatt_Node_1";
+  const devEui = device.devEui || "0000000000000000";
+  const appKey = device.appKey || "00000000000000000000000000000000";
+
+  const formatHexToCArray = (hexStr, reverse = false) => {
+    const pairs = hexStr.toLowerCase().match(/.{1,2}/g) || [];
+    if (reverse) pairs.reverse();
+    return pairs.map((p) => `0x${p.toUpperCase()}`).join(", ");
+  };
+
+  const code = `
+#define DEVICE_NAME  "${devName}"
+
+// LSB Format
+static const u1_t PROGMEM DEVEUI[8] = { ${formatHexToCArray(devEui, true)} };
+void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8); }
+
+static const u1_t PROGMEM APPEUI[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8); }
+
+// MSB Format
+static const u1_t PROGMEM APPKEY[16] = { ${formatHexToCArray(appKey)} };
+void os_getDevKey (u1_t* buf) { memcpy_P(buf, APPKEY, 16); }
+`.trim();
+
+  try {
+    await navigator.clipboard.writeText(code);
+    copiedDeviceId.value = device.id;
+    setTimeout(() => {
+      copiedDeviceId.value = null;
+    }, 2000);
+  } catch (err) {
+    alert("Failed to copy code: " + err);
+  }
+};
+
 // --- Actions: Add Device ---
 const openAddModal = () => {
   newDeviceForm.value = {
     name: "",
     devEui: "",
-    type: "Meter",
-    status: "Active",
-    sendRate: 5,
-    installDate: new Date().toISOString().split("T")[0],
-    description: "",
+    appKey: "",
+    deviceProfileId: "1fc24fd7-5148-453b-9ce5-abfd51e2c6b4",
   };
   isAddModalOpen.value = true;
 };
 
 const handleAddDevice = async () => {
-  if (!newDeviceForm.value.name) {
-    alert("กรุณากรอกชื่ออุปกรณ์");
+  if (!newDeviceForm.value.name || !newDeviceForm.value.devEui || !newDeviceForm.value.appKey) {
+    showWarning("ข้อมูลไม่ครบถ้วน", "กรุณากรอกข้อมูลที่จำเป็นทั้งหมด");
+    return;
+  }
+
+  if (newDeviceForm.value.devEui.length !== 16) {
+    showWarning("รูปแบบไม่ถูกต้อง", "DevEUI ต้องมีความยาว 16 ตัวอักษร");
+    return;
+  }
+
+  if (newDeviceForm.value.appKey.length !== 32) {
+    showWarning("รูปแบบไม่ถูกต้อง", "AppKey ต้องมีความยาว 32 ตัวอักษร");
+    return;
+  }
+
+  const deviceName = newDeviceForm.value.name.trim();
+  const inputDevEui = newDeviceForm.value.devEui.toLowerCase();
+
+  // --- 🔒 Duplicate Prevention Checks ---
+  const isDuplicateName = devices.value.some(
+    (device) =>
+      device.name?.toLowerCase() === deviceName.toLowerCase() ||
+      device.id?.toLowerCase() === deviceName.toLowerCase(),
+  );
+
+  if (isDuplicateName) {
+    showWarning(
+      "ชื่ออุปกรณ์ซ้ำซ้อน",
+      `ชื่ออุปกรณ์ "${deviceName}" มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่นเพื่อป้องกันข้อมูลทับซ้อน`,
+    );
+    return;
+  }
+
+  const isDuplicateDevEUI = devices.value.some(
+    (device) => device.devEui?.toLowerCase() === inputDevEui,
+  );
+
+  if (isDuplicateDevEUI) {
+    showWarning(
+      "หมายเลขฮาร์ดแวร์ซ้ำซ้อน",
+      `หมายเลข DevEUI "${inputDevEui.toUpperCase()}" กำลังถูกใช้งานโดยอุปกรณ์อื่นในระบบ`,
+    );
     return;
   }
 
   const payload = {
-    name: newDeviceForm.value.name,
-    defaultName: newDeviceForm.value.name, // ✅ เก็บชื่อตั้งต้นไว้ (กันหาย)
-    devEui: newDeviceForm.value.devEui || "-",
-    type: newDeviceForm.value.type,
-    status: "Active",
-    battery: 100,
-    sendRate: newDeviceForm.value.sendRate + " min",
-    installDate: newDeviceForm.value.installDate,
-    description: newDeviceForm.value.description,
-    last_update: Date.now(),
+    deviceName: deviceName,
+    devEui: newDeviceForm.value.devEui.toUpperCase(),
+    appKey: newDeviceForm.value.appKey.toUpperCase(),
+    deviceProfileId: newDeviceForm.value.deviceProfileId,
   };
 
   try {
-    await push(devicesRef, payload);
+    await set(dbRef(db, `registration_queue/${deviceName}`), payload);
+
+    await update(dbRef(db, `devices/${deviceName}`), {
+      name: deviceName,
+      devEui: newDeviceForm.value.devEui.toLowerCase(),
+      appKey: newDeviceForm.value.appKey.toUpperCase(),
+      deviceProfileId: newDeviceForm.value.deviceProfileId,
+      status: "Pending Registration",
+      last_update: Date.now(),
+    });
+
+    successMessage.value = "ส่งคำสั่งลงทะเบียนไปยัง Gateway แล้ว...";
+    isSuccessModalOpen.value = true;
+
+    setTimeout(() => {
+      isSuccessModalOpen.value = false;
+    }, 3000);
+
     isAddModalOpen.value = false;
+    newDeviceForm.value = {
+      name: "",
+      devEui: "",
+      appKey: "",
+      deviceProfileId: "1fc24fd7-5148-453b-9ce5-abfd51e2c6b4",
+    };
   } catch (error) {
-    alert("Error: " + error.message);
+    showWarning("เกิดข้อผิดพลาด", error.message);
   }
 };
 
@@ -234,7 +626,12 @@ const openDeleteModal = (id) => {
 const confirmDelete = async () => {
   if (deviceToDelete.value) {
     try {
-      await remove(dbRef(db, `devices/${deviceToDelete.value}`));
+      const device = devices.value.find((d) => d.id === deviceToDelete.value);
+
+      await set(dbRef(db, `delete_queue/${deviceToDelete.value}`), {
+        devEui: device?.devEui || "",
+      });
+
       isDeleteModalOpen.value = false;
       deviceToDelete.value = null;
     } catch (error) {
@@ -254,45 +651,53 @@ const getBatteryColor = (level) => {
 <template>
   <div class="device-page">
     <div class="header-section">
-      <h1 class="text-2xl font-bold">Device Management</h1>
-      <button class="btn-add" @click="openAddModal">+ New Device</button>
+      <h1 class="text-2xl font-bold">การจัดการอุปกรณ์</h1>
+      <div style="display: flex; gap: 10px">
+        <button
+          class="btn-add btn-secondary"
+          @click="showRoomListModal = true"
+          style="background: #475569"
+        >
+          จัดการห้อง
+        </button>
+        <button class="btn-add" @click="openAddModal">+ เพิ่มอุปกรณ์ใหม่</button>
+      </div>
     </div>
 
     <div class="control-bar">
-      <!-- Search Group -->
       <div class="control-group">
-        <label class="group-label">Search</label>
+        <label class="group-label">ค้นหา</label>
         <div class="search-wrapper">
           <span class="search-icon">🔍</span>
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search Name, ID, or Room..."
+            placeholder="ค้นหา ชื่อ, ID, หรือห้อง..."
             class="premium-control-input search-input"
           />
         </div>
       </div>
 
-      <!-- Filters Group -->
       <div class="control-group">
-        <label class="group-label">Filtering</label>
+        <label class="group-label">ตัวกรอง</label>
         <div class="select-group">
           <div class="custom-premium-select">
             <select v-model="filterFloor">
-              <option value="All">All Floors</option>
-              <option value="1">Floor 1</option>
-              <option value="2">Floor 2</option>
-              <option value="3">Floor 3</option>
+              <option value="All">ทุกชั้น</option>
+              <option value="1">ชั้น 1</option>
+              <option value="2">ชั้น 2</option>
+              <option value="3">ชั้น 3</option>
             </select>
             <div class="select-arrow">▼</div>
           </div>
 
           <div class="custom-premium-select">
             <select v-model="filterStatus">
-              <option value="All">All Status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-              <option value="Maintenance">Maintenance</option>
+              <option value="All">ทุกสถานะ</option>
+              <option value="Active">เปิดใช้งาน (Active)</option>
+              <option value="Inactive">ปิดใช้งาน (Inactive)</option>
+              <option value="Maintenance">ซ่อมบำรุง</option>
+              <option value="Sleep">โหมดพัก (Sleep)</option>
             </select>
             <div class="select-arrow">▼</div>
           </div>
@@ -304,105 +709,239 @@ const getBatteryColor = (level) => {
       <table>
         <thead>
           <tr>
-            <th>Device Name</th>
+            <th width="40" class="text-center"></th>
+            <th>ชื่ออุปกรณ์</th>
             <th>DevEUI / S/N</th>
-            <th>Location (Auto)</th>
-            <th>Type</th>
-            <th>Battery</th>
-            <th>Status</th>
-            <th>Installed</th>
-            <th class="text-center">Actions</th>
+            <th>ตำแหน่ง (Auto)</th>
+            <th>ประเภท</th>
+            <th>แบตเตอรี่</th>
+            <th>สถานะ</th>
+            <th>วันที่ติดตั้ง</th>
+            <th class="text-center">จัดการ</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="dev in filteredDevices" :key="dev.id">
-            <td class="font-bold text-gray-700">
-              {{ dev.name }}
-              <div class="text-xs text-gray-400 font-mono">{{ dev.id }}</div>
-            </td>
+          <template v-for="dev in filteredDevices" :key="dev.id">
+            <tr :class="{ 'expanded-row-active': expandedRows.includes(dev.id) }">
+              <td class="text-center">
+                <button v-if="isPowerNode(dev)" class="btn-expand" @click="toggleExpand(dev.id)">
+                  <svg
+                    v-if="expandedRows.includes(dev.id)"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                  <svg
+                    v-else
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  </svg>
+                </button>
+              </td>
+              <td class="font-bold text-gray-700">
+                {{ dev.name || dev.device_name || "Unknown Device" }}
+                <div class="text-xs text-gray-400 font-mono">{{ dev.id }}</div>
+              </td>
 
-            <td class="font-mono text-xs text-gray-600">
-              {{ dev.devEui || "-" }}
-            </td>
+              <td class="font-mono text-xs text-gray-600">
+                {{ dev.devEui || "-" }}
+              </td>
 
-            <td>
-              <span v-if="dev.roomName !== 'Unassigned'" class="location-badge">
-                📍 {{ dev.roomName }} (Fl.{{ dev.floorNum }})
-              </span>
-              <span v-else class="text-gray-400 text-sm italic">- Unassigned -</span>
-            </td>
+              <td>
+                <span v-if="dev.roomName !== 'Unassigned'" class="location-badge">
+                  📍 {{ dev.roomName }} (ชั้น {{ dev.floorNum }})
+                </span>
+                <span v-else class="text-gray-400 text-sm italic">- ยังไม่ได้ระบุ -</span>
+              </td>
 
-            <td>{{ dev.type }}</td>
+              <td>
+                <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs font-semibold">
+                  {{ getDeviceType(dev) }}
+                </span>
+              </td>
 
-            <td>
-              <div class="battery-wrapper">
-                <div class="battery-icon">
-                  <div
-                    class="battery-level"
-                    :style="{
-                      width: (dev.battery || 0) + '%',
-                      background: getBatteryColor(dev.battery || 0),
-                    }"
-                  ></div>
+              <td>
+                <div class="battery-wrapper">
+                  <div class="battery-icon">
+                    <div
+                      class="battery-level"
+                      :style="{
+                        width: (dev.battery || 0) + '%',
+                        background: getBatteryColor(dev.battery || 0),
+                      }"
+                    ></div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; line-height: 1">
+                    <span :style="{ color: getBatteryColor(dev.battery || 0), fontWeight: 'bold' }">
+                      {{ dev.battery || 0 }}%
+                    </span>
+                    <span
+                      v-if="(dev.battery || 0) <= 20 && dev.battery !== undefined"
+                      class="text-xs text-red-500 font-bold mt-1"
+                      style="animation: pulse 2s infinite"
+                    >
+                      แบตเตอรี่ต่ำ
+                    </span>
+                  </div>
                 </div>
-                <span :style="{ color: getBatteryColor(dev.battery || 0) }"
-                  >{{ dev.battery || 0 }}%</span
-                >
-              </div>
-            </td>
+              </td>
 
-            <td>
-              <span
-                class="status-dot"
-                :class="(dev.status || '').toLowerCase().replace(' ', '-')"
-              ></span>
-              {{ dev.status }}
-            </td>
+              <td>
+                <span
+                  class="status-dot"
+                  :class="(dev.computedStatus || '').toLowerCase().replace(' ', '-')"
+                ></span>
+                {{ dev.computedStatus }}
+              </td>
 
-            <td class="text-sm text-gray-500">
-              {{ dev.installDate || "-" }}
-            </td>
+              <td class="text-sm text-gray-500">
+                {{ dev.installDate || "-" }}
+              </td>
 
-            <td class="text-center">
-              <button class="btn-icon btn-edit" @click="openEditModal(dev)" title="Config">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+              <td class="text-center">
+                <button
+                  class="btn-icon btn-copy-row"
+                  @click="copyExistingToESP32(dev)"
+                  :title="copiedDeviceId === dev.id ? 'Copied!' : 'Copy ESP32 Code'"
+                  :class="{ 'text-success': copiedDeviceId === dev.id }"
                 >
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-              </button>
-              <button class="btn-icon btn-delete" @click="openDeleteModal(dev.id)" title="Delete">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path
-                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                  ></path>
-                </svg>
-              </button>
-            </td>
-          </tr>
+                  <svg
+                    v-if="copiedDeviceId !== dev.id"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <svg
+                    v-else
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#10b981"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+                <button class="btn-icon btn-edit" @click="openEditModal(dev)" title="Config">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                </button>
+                <button class="btn-icon btn-delete" @click="openDeleteModal(dev.id)" title="Delete">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path
+                      d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                    ></path>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+            <!-- Sub-rows for Channels (Only visible for Power Nodes) -->
+            <template v-if="isPowerNode(dev) && expandedRows.includes(dev.id)">
+              <tr v-for="ch in ['ch1', 'ch2', 'ch3']" :key="`${dev.id}-${ch}`" class="sub-row">
+                <td></td>
+                <td class="sub-channel-name pl-6">
+                  <span class="tree-line">↳</span>
+                  <span class="font-bold text-gray-500"
+                    >Channel {{ ch.replace("ch", "") }} ({{ ch }})
+                    <span
+                      v-if="deviceMappings[dev.id] && deviceMappings[dev.id][ch + '_label']"
+                      class="text-blue-600 ml-1 text-sm font-medium"
+                      >[{{ deviceMappings[dev.id][ch + "_label"] }}]</span
+                    ></span
+                  >
+                </td>
+                <td></td>
+                <td>
+                  <span
+                    v-if="deviceMappings[dev.id] && deviceMappings[dev.id][ch]"
+                    class="location-badge-sub"
+                  >
+                    📍 ห้อง {{ deviceMappings[dev.id][ch] }}
+                  </span>
+                  <span v-else class="text-gray-400 text-sm italic">- ยังไม่ได้ระบุ -</span>
+                </td>
+                <td colspan="4"></td>
+                <td class="text-center">
+                  <button
+                    class="btn-icon btn-edit-sub"
+                    @click="openChannelModal(dev, ch)"
+                    title="Config Channel Location"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                      <circle cx="12" cy="10" r="3"></circle>
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            </template>
+          </template>
           <tr v-if="filteredDevices.length === 0">
-            <td colspan="8" class="text-center py-4 text-gray-500">
-              No devices found matching your search.
+            <td colspan="9" class="text-center py-4 text-gray-500">
+              ไม่พบอุปกรณ์ที่ตรงตามการค้นหา
             </td>
           </tr>
         </tbody>
@@ -416,8 +955,10 @@ const getBatteryColor = (level) => {
             <div class="header-title">
               <span class="icon-bg">⚙️</span>
               <div>
-                <h3>Device Configuration</h3>
-                <p class="subtitle">Manage settings for {{ selectedDevice?.name }}</p>
+                <h3>การตั้งค่าอุปกรณ์</h3>
+                <p class="subtitle">
+                  จัดการการตั้งค่าสำหรับ {{ selectedDevice?.name || selectedDevice?.device_name }}
+                </p>
               </div>
             </div>
             <button class="close-btn" @click="isModalOpen = false">
@@ -439,28 +980,46 @@ const getBatteryColor = (level) => {
           </div>
 
           <div class="modal-body">
-            <!-- Section 1: General Info -->
             <div class="form-section">
-              <label class="section-label">General Information</label>
+              <label class="section-label">ข้อมูลทั่วไป</label>
               <div class="input-wrapper">
                 <span class="input-icon">🏷️</span>
                 <input
                   v-model="tempName"
                   type="text"
                   class="premium-input"
-                  placeholder="Enter device name"
+                  placeholder="กรอกชื่ออุปกรณ์"
                 />
               </div>
-              <p class="helper-text">Original Name: {{ selectedDevice?.defaultName || "-" }}</p>
+              <p class="helper-text">
+                ชื่อเดิม:
+                {{ selectedDevice?.defaultName || selectedDevice?.device_name || "-" }}
+              </p>
             </div>
 
-            <!-- Section 2: Transmission Rate -->
             <div class="form-section">
-              <label class="section-label">Data Transmission Rate</label>
+              <label class="section-label">ประเภทอุปกรณ์ (Device Type)</label>
+              <div class="input-wrapper">
+                <select
+                  v-model="tempDeviceType"
+                  class="form-control"
+                  style="width: 100%; cursor: pointer"
+                >
+                  <option value="">-- ไม่ระบุ (Unknown) --</option>
+                  <option value="1fc24fd7-5148-453b-9ce5-abfd51e2c6b4">โหนดวัดพลังงานไฟฟ้า</option>
+                  <option value="32eb3fc4-ae51-46f8-9ef1-a2917e0df79e">
+                    โหนดวัดอุณหภูมิและความชื้น
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <label class="section-label">อัตราการส่งข้อมูล</label>
               <div class="rate-control">
                 <div class="custom-rate">
                   <input v-model="tempRate" type="number" min="1" class="rate-input" />
-                  <span class="unit">min</span>
+                  <span class="unit">นาที</span>
                 </div>
                 <div class="preset-pills">
                   <button
@@ -474,29 +1033,65 @@ const getBatteryColor = (level) => {
                   </button>
                 </div>
               </div>
+              <p class="helper-text mt-1" style="color: #64748b; font-size: 0.75rem">
+                💡 การเปลี่ยนอัตราการส่งข้อมูลจะมีผลเมื่ออุปกรณ์ส่งข้อมูลรอบถัดไปและรับ downlink
+                สำเร็จ
+              </p>
             </div>
 
-            <!-- Section 3: Power Management (Danger Zone) -->
+            <div class="form-section">
+              <label class="section-label">การกำหนดตำแหน่ง</label>
+              <div style="display: flex; gap: 15px; margin-top: 10px">
+                <div class="input-group" style="flex: 1">
+                  <label>กำหนดให้ห้อง</label>
+                  <select v-model="tempAssignedRoom" class="form-control" style="width: 100%">
+                    <option value="">-- ยังไม่ได้ระบุ --</option>
+                    <option v-for="room in availableRooms" :key="room.value" :value="room.value">
+                      {{ room.label }}
+                    </option>
+                  </select>
+                </div>
+                <div class="input-group" style="flex: 1">
+                  <label>กำหนดให้แชนเนล</label>
+                  <select
+                    v-model="tempAssignedChannel"
+                    class="form-control"
+                    :disabled="!tempAssignedRoom"
+                    style="width: 100%"
+                  >
+                    <option value="ch1">แชนเนล 1 (ch1)</option>
+                    <option value="ch2">แชนเนล 2 (ch2)</option>
+                    <option value="ch3">แชนเนล 3 (ch3)</option>
+                    <option value="ch4">แชนเนล 4 (ch4)</option>
+                    <option value="ch5">แชนเนล 5 (ch5)</option>
+                    <option value="ch6">แชนเนล 6 (ch6)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <div class="danger-zone">
               <div class="dz-header">
                 <span class="dz-icon">⚡</span>
-                <span class="dz-title">Power Management</span>
+                <span class="dz-title">การจัดการพลังงาน</span>
               </div>
               <div class="dz-content">
-                <p>
-                  Order the device to enter Deep Sleep mode to conserve battery. Device will wake up
-                  on next scheduled uplink.
-                </p>
-                <button class="btn-sleep-premium" @click="orderSleep">
-                  <span>💤 Order Sleep Mode</span>
-                </button>
+                <p>ควบคุมระยะเวลา Deep Sleep ตามความถี่ Data Transmission Rate</p>
+                <div style="display: flex; gap: 10px; margin-top: 15px">
+                  <button class="btn-sleep-premium" style="flex: 1" @click="orderSleep">
+                    <span>สั่งหลับ (Sleep)</span>
+                  </button>
+                  <button class="btn-wake-premium" style="flex: 1" @click="orderWake">
+                    <span>สั่งตื่น (Wake)</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
           <div class="modal-footer">
-            <button class="btn-ghost" @click="isModalOpen = false">Cancel</button>
-            <button class="btn-primary-save" @click="saveConfig">Save Changes</button>
+            <button class="btn-ghost" @click="isModalOpen = false">ยกเลิก</button>
+            <button class="btn-primary-save" @click="saveConfig">บันทึกการเปลี่ยนแปลง</button>
           </div>
         </div>
       </div>
@@ -506,63 +1101,217 @@ const getBatteryColor = (level) => {
       <div v-if="isAddModalOpen" class="modal-overlay" @click.self="isAddModalOpen = false">
         <div class="modal-content">
           <div class="modal-header">
-            <h3>➕ Add New Device</h3>
+            <h3>➕ เพิ่มอุปกรณ์ใหม่</h3>
             <button class="close-btn" @click="isAddModalOpen = false">×</button>
           </div>
 
           <div class="modal-body">
-            <div class="row-2-col mb-3">
-              <div class="input-group">
-                <label>Device Name *</label>
-                <input
-                  v-model="newDeviceForm.name"
-                  type="text"
-                  class="form-control"
-                  placeholder="e.g. Smart Meter 01"
-                />
-              </div>
-              <div class="input-group">
-                <label>DevEUI / S/N</label>
-                <input
-                  v-model="newDeviceForm.devEui"
-                  type="text"
-                  class="form-control"
-                  placeholder="e.g. A84041..."
-                />
-              </div>
-            </div>
-
-            <div class="row-2-col mt-3">
-              <div class="input-group">
-                <label>Type</label>
-                <select v-model="newDeviceForm.type" class="form-control">
-                  <option value="Meter">Energy Meter</option>
-                  <option value="Sensor">Environment Sensor</option>
-                  <option value="Gateway">LoRa Gateway</option>
-                </select>
-              </div>
-              <div class="input-group">
-                <label>Send Rate (Min)</label>
-                <input v-model="newDeviceForm.sendRate" type="number" class="form-control" />
-              </div>
-            </div>
-
-            <div class="input-group mt-3">
-              <label>Note / Description</label>
-              <textarea
-                v-model="newDeviceForm.description"
+            <div class="input-group mb-3">
+              <label>ชื่อโมดูล (Module Name / ID) *</label>
+              <input
+                v-model="newDeviceForm.name"
+                type="text"
                 class="form-control"
-                style="height: 80px; resize: none"
-              ></textarea>
+                placeholder="เช่น กล่อง A, SmartWatt_Node_01"
+              />
             </div>
-            <div class="text-xs text-gray-500 mt-2">
-              * หมายเหตุ: การกำหนด "ห้อง" ให้ไปทำที่เมนูจัดการผังตึก (Building Config)
+
+            <div class="input-group mb-3">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  margin-bottom: 6px;
+                "
+              >
+                <label style="margin: 0">รหัสฮาร์ดแวร์ (DevEUI 16 หลัก) *</label>
+                <div style="display: flex; gap: 8px">
+                  <button
+                    type="button"
+                    class="btn-generate"
+                    @click="autoGenerateKeys"
+                    title="Generate Random Keys"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M21 2v6h-6"></path>
+                      <path d="M21 13a9 9 0 1 1-3-7.7L21 8"></path>
+                    </svg>
+                    สร้างอัตโนมัติ
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-copy-esp"
+                    @click="copyToESP32"
+                    :class="{ success: copySuccess }"
+                    :title="copySuccess ? 'Copied!' : 'Copy ESP32 C Code'"
+                  >
+                    <svg
+                      v-if="!copySuccess"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    <svg
+                      v-else
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    {{ copySuccess ? "คัดลอกแล้ว!" : "คัดลอกโค้ดภาษา C (ESP32)" }}
+                  </button>
+                </div>
+              </div>
+              <input
+                v-model="newDeviceForm.devEui"
+                type="text"
+                class="form-control font-mono text-sm uppercase"
+                placeholder="เลข 16 หลัก"
+                maxlength="16"
+              />
+            </div>
+
+            <div class="input-group mb-3">
+              <label>AppKey (เลข 32 หลัก) *</label>
+              <input
+                v-model="newDeviceForm.appKey"
+                type="text"
+                class="form-control font-mono text-sm uppercase"
+                placeholder="เลข 32 หลัก"
+                maxlength="32"
+              />
+            </div>
+
+            <div class="input-group mb-3">
+              <label>Device Type *</label>
+              <select v-model="newDeviceForm.deviceProfileId" class="form-control">
+                <option value="1fc24fd7-5148-453b-9ce5-abfd51e2c6b4">SmartWatt Power Node</option>
+                <option value="32eb3fc4-ae51-46f8-9ef1-a2917e0df79e">
+                  SmartWatt Environment Node
+                </option>
+              </select>
             </div>
           </div>
 
           <div class="modal-footer">
-            <button class="btn-cancel" @click="isAddModalOpen = false">Cancel</button>
-            <button class="btn-save" @click="handleAddDevice">Add Device</button>
+            <button class="btn-cancel" @click="isAddModalOpen = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddDevice">เพิ่มอุปกรณ์</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="fade">
+      <div v-if="isChannelModalOpen" class="modal-overlay" @click.self="isChannelModalOpen = false">
+        <div class="modal-content premium-modal">
+          <div class="modal-header">
+            <div class="header-title">
+              <span class="icon-bg">📍</span>
+              <div>
+                <h3>การกำหนดแชนเนล</h3>
+                <p class="subtitle">จัดการจุดติดตั้งของ {{ selectedChannelId }}</p>
+              </div>
+            </div>
+            <button class="close-btn" @click="isChannelModalOpen = false">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body" style="padding: 16px 24px 32px 24px">
+            <div class="form-section">
+              <label class="section-label" style="display: block; margin-bottom: 8px"
+                >กำหนดให้ห้อง</label
+              >
+              <div class="input-wrapper">
+                <select
+                  v-model="tempRoom"
+                  class="form-control"
+                  style="
+                    cursor: pointer;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    border: 1.5px solid #cbd5e1;
+                    outline: none;
+                    width: 100%;
+                    height: 48px;
+                    font-size: 15px;
+                    box-sizing: border-box;
+                  "
+                >
+                  <option value="">-- ยังไม่ได้ระบุ --</option>
+                  <option v-for="room in availableRooms" :key="room.value" :value="room.value">
+                    {{ room.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-section" style="margin-top: 20px">
+              <label class="section-label" style="display: block; margin-bottom: 8px"
+                >ชื่อจุดติดตั้ง / ฉลาก (Label) *ไม่บังคับ</label
+              >
+              <div class="input-wrapper">
+                <input
+                  v-model="tempLabel"
+                  type="text"
+                  placeholder="เช่น แอร์ห้อง 101, ไฟทางเดิน..."
+                  class="form-control"
+                  style="
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    border: 1.5px solid #cbd5e1;
+                    outline: none;
+                    width: 100%;
+                    height: 48px;
+                    font-size: 15px;
+                    box-sizing: border-box;
+                  "
+                />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-ghost" @click="isChannelModalOpen = false">ยกเลิก</button>
+            <button class="btn-primary-save" @click="saveChannelConfig">บันทึกตำแหน่ง</button>
           </div>
         </div>
       </div>
@@ -572,7 +1321,7 @@ const getBatteryColor = (level) => {
       <div v-if="isDeleteModalOpen" class="modal-overlay" @click.self="isDeleteModalOpen = false">
         <div class="modal-content delete-modal">
           <div class="modal-header">
-            <h3 class="text-danger">⚠️ Confirm Deletion</h3>
+            <h3 class="text-danger">⚠️ ยืนยันการลบ</h3>
             <button class="close-btn" @click="isDeleteModalOpen = false">×</button>
           </div>
           <div class="modal-body text-center">
@@ -588,6 +1337,65 @@ const getBatteryColor = (level) => {
         </div>
       </div>
     </Transition>
+
+    <Transition name="fade-scale">
+      <div v-if="isSuccessModalOpen" class="modal-overlay" @click.self="isSuccessModalOpen = false">
+        <div class="modal-content success-premium-modal text-center">
+          <div class="success-icon-wrapper">
+            <div class="success-icon-bg"></div>
+            <svg
+              class="success-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <h3 class="success-title">สำเร็จ</h3>
+          <p class="success-message text-gray-500 mt-2">{{ successMessage }}</p>
+          <button class="btn-success-close mt-6" @click="isSuccessModalOpen = false">ตกลง</button>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="fade-scale">
+      <div v-if="isWarningModalOpen" class="modal-overlay" @click.self="isWarningModalOpen = false">
+        <div class="modal-content warning-premium-modal text-center">
+          <div class="warning-icon-wrapper">
+            <div class="warning-icon-bg"></div>
+            <svg
+              class="warning-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+              ></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <h3 class="warning-title">{{ warningTitle }}</h3>
+          <p class="warning-message text-gray-500 mt-2">{{ warningMessage }}</p>
+          <button class="btn-warning-close mt-6" @click="isWarningModalOpen = false">
+            เข้าใจแล้ว
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <RoomManagerModal v-model:showAdd="showAddRoomModal" v-model:showList="showRoomListModal" />
   </div>
 </template>
 
@@ -803,6 +1611,12 @@ td {
   font-size: 0.8rem;
   color: #495057;
   font-weight: 500;
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .status-dot {
   height: 10px;
@@ -816,7 +1630,8 @@ td {
   background-color: #198754;
   box-shadow: 0 0 4px #198754;
 }
-.status-dot.pending-sleep {
+.status-dot.pending-sleep,
+.status-dot.pending-interval-update {
   background-color: #fd7e14;
   animation: pulse 2s infinite;
 }
@@ -1159,6 +1974,11 @@ td {
   font-weight: 700;
 }
 
+.btn-copy-row:hover {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
 /* Danger Zone */
 .danger-zone {
   margin-top: 32px;
@@ -1211,6 +2031,29 @@ td {
   border-color: #dc2626;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
+}
+
+.btn-wake-premium {
+  width: 100%;
+  padding: 12px;
+  background: white;
+  border: 1px solid #fbbf24;
+  color: #d97706;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-wake-premium:hover {
+  background: #f59e0b;
+  color: white;
+  border-color: #f59e0b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
 }
 
 /* Footer */
@@ -1390,6 +2233,166 @@ td {
   opacity: 0;
 }
 
+/* Auto Generate Button */
+.btn-generate {
+  background: #f1f5f9;
+  color: #3b82f6;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+.btn-generate:hover {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
+
+/* ESP32 Copy Button */
+.btn-copy-esp {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.btn-copy-esp:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+.btn-copy-esp.success {
+  background: #ecfdf5;
+  color: #10b981;
+  border-color: #34d399;
+}
+
+/* Premium Success Modal */
+.success-premium-modal {
+  max-width: 360px;
+  padding: 32px 24px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.success-icon-wrapper {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.success-icon-bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-radius: 50%;
+  opacity: 0.15;
+  animation: pulse-ring 2s infinite;
+}
+
+.success-icon {
+  width: 40px;
+  height: 40px;
+  color: #10b981;
+  z-index: 1;
+  animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.success-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.success-message {
+  font-size: 0.95rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.btn-success-close {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-success-close:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.btn-success-close:active {
+  transform: translateY(0);
+}
+
+.fade-scale-enter-active,
+.fade-scale-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-scale-enter-from,
+.fade-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95) translateY(10px);
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 /* Responsive Adjustments */
 @media (max-width: 1024px) {
   .header-section {
@@ -1420,7 +2423,7 @@ td {
   }
 
   table {
-    min-width: 900px; /* Keep table wide enough to be readable */
+    min-width: 900px;
   }
 }
 
@@ -1432,7 +2435,7 @@ td {
   .modal-content {
     width: 95%;
     margin: 10px;
-    padding: 0; /* Let body handle padding */
+    padding: 0;
   }
 
   .modal-body {
@@ -1454,6 +2457,146 @@ td {
 
   .modal-footer button {
     width: 100%;
+  }
+}
+
+.btn-expand {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+.btn-expand:hover {
+  background: #f1f5f9;
+  color: #3b82f6;
+}
+.expanded-row-active {
+  background-color: #f8fafc;
+}
+.sub-row {
+  background-color: #fafafa;
+  border-bottom: 1px dashed #e2e8f0;
+}
+.sub-row:last-child {
+  border-bottom: 1px solid #e9ecef;
+}
+.sub-channel-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tree-line {
+  color: #cbd5e1;
+  font-weight: bold;
+}
+.location-badge-sub {
+  background: #e0f2fe;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: #0369a1;
+  font-weight: 600;
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.btn-edit-sub {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+}
+.pl-6 {
+  padding-left: 1.5rem !important;
+}
+
+/* --- Warning Premium Modal --- */
+.warning-premium-modal {
+  padding: 40px;
+  background: white;
+  border-radius: 20px;
+  max-width: 400px;
+}
+
+.warning-icon-wrapper {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.warning-icon-bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: #fef08a;
+  border-radius: 50%;
+  opacity: 0.3;
+  animation: pulseWarning 2s infinite;
+}
+
+.warning-icon {
+  width: 40px;
+  height: 40px;
+  color: #eab308;
+  z-index: 1;
+}
+
+.warning-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1f2937;
+  margin: 0;
+}
+
+.warning-message {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.btn-warning-close {
+  background: #f3f4f6;
+  color: #4b5563;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.btn-warning-close:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+  transform: translateY(-2px);
+}
+
+@keyframes pulseWarning {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.5;
   }
 }
 </style>

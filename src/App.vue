@@ -1,8 +1,11 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import AppSidebar from "./components/AppSidebar.vue";
 import SystemAlertMonitor from "./components/SystemAlertMonitor.vue";
+import { auth, rtdb as db } from "./firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { ref as dbRef, get } from "firebase/database";
 
 const route = useRoute();
 // เริ่มต้นเปิดไว้สำหรับ Desktop
@@ -26,11 +29,28 @@ const closeSidebar = () => {
   }
 };
 
-// Check if user is admin (simple check from local storage or auth state)
-// Ideally this should use a proper store, but for now we rely on localStorage
-const isAdmin = computed(() => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.role_id === 1;
+// Use Firebase Auth state to check if user is admin
+const isAdmin = ref(false);
+
+onMounted(() => {
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        const userSnapshot = await get(dbRef(db, `users/${user.uid}`));
+        if (userSnapshot.exists()) {
+          const role = userSnapshot.val().role_id;
+          isAdmin.value = role == 1; // 1 = Admin
+        } else {
+          isAdmin.value = false;
+        }
+      } catch (err) {
+        console.error("Error fetching user role:", err);
+        isAdmin.value = false;
+      }
+    } else {
+      isAdmin.value = false;
+    }
+  });
 });
 </script>
 

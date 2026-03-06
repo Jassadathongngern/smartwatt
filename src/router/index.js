@@ -5,7 +5,6 @@ import { ref as dbRef, get } from "firebase/database";
 import DashboardOverviewManager from "../components/DashboardOverviewManager.vue";
 import DashboardOverviewGuest from "../components/DashboardOverviewGuest.vue";
 import DeviceManagement from "../components/DeviceManagement.vue";
-import ScheduleManagement from "../components/ScheduleManagement.vue";
 import RoomSchedule from "../components/RoomSchedule.vue";
 import NotificationManagement from "../components/NotificationManagement.vue";
 import UserManagement from "../components/UserManagement.vue";
@@ -55,12 +54,6 @@ const routes = [
     path: "/devices",
     name: "DeviceManagement",
     component: DeviceManagement,
-    meta: { requiresAdmin: true },
-  },
-  {
-    path: "/schedule", // เก็บไว้ตามขอ
-    name: "ScheduleManagement",
-    component: ScheduleManagement,
     meta: { requiresAdmin: true },
   },
   {

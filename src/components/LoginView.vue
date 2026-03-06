@@ -101,17 +101,17 @@ const handleLogin = async () => {
 <template>
   <div class="login-wrapper">
     <div class="login-box">
-      <h2>SmartWatt Login</h2>
+      <h2>เข้าสู่ระบบ SmartWatt</h2>
       <form @submit.prevent="handleLogin">
         <div class="input-group">
-          <input v-model="email" type="email" placeholder="Email" required :disabled="isLoading" />
+          <input v-model="email" type="email" placeholder="อีเมล" required :disabled="isLoading" />
         </div>
 
         <div class="input-group password-group">
           <input
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="Password"
+            placeholder="รหัสผ่าน"
             required
             :disabled="isLoading"
           />
@@ -140,12 +140,12 @@ const handleLogin = async () => {
 
         <button type="submit" class="btn-primary" :disabled="isLoading">
           <span v-if="isLoading" class="loader"></span>
-          <span v-if="isLoading">Signing in...</span>
-          <span v-else>Login</span>
+          <span v-if="isLoading">กำลังเข้าสู่ระบบ...</span>
+          <span v-else>เข้าสู่ระบบ</span>
         </button>
 
         <button type="button" class="btn-secondary" @click="handleBack" :disabled="isLoading">
-          Back
+          ย้อนกลับ
         </button>
       </form>
     </div>
@@ -153,14 +153,14 @@ const handleLogin = async () => {
     <div v-if="showSuccessModal" class="modal-overlay">
       <div class="modal-content">
         <div class="success-icon">✓</div>
-        <h3>Login Success!</h3>
+        <h3>เข้าสู่ระบบสำเร็จ!</h3>
 
         <button
           class="btn-primary"
           @click="proceedToDashboard"
           style="width: auto; padding: 12px 40px; margin: 20px auto 0"
         >
-          Enter
+          ตกลง
         </button>
       </div>
     </div>

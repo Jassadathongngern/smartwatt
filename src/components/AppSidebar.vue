@@ -8,7 +8,6 @@ import {
   BarChart3,
   CalendarClock,
   Cpu,
-  Timer,
   Users,
   Bell,
   LogIn,
@@ -26,6 +25,7 @@ const emit = defineEmits(["toggle", "close"]);
 const router = useRouter();
 const isLoggedIn = ref(false);
 const isAuthReady = ref(false);
+const showLogoutModal = ref(false);
 
 onMounted(() => {
   onAuthStateChanged(auth, (user) => {
@@ -38,7 +38,16 @@ onMounted(() => {
   });
 });
 
+const confirmLogout = () => {
+  showLogoutModal.value = true;
+};
+
+const cancelLogout = () => {
+  showLogoutModal.value = false;
+};
+
 const handleLogout = async () => {
+  showLogoutModal.value = false;
   try {
     await signOut(auth);
     router.push("/");
@@ -72,7 +81,7 @@ const refreshPage = () => {
 
   <aside class="sidebar" :class="{ 'is-open': isOpen }">
     <div class="logo-container" @click="refreshPage" title="Refresh Page">
-      <div class="logo-icon">W</div>
+      <div class="logo-icon">S</div>
       <div class="logo-text">SmartWatt</div>
       <!-- Internal Button (Visible when Sidebar is OPEN) -->
       <button
@@ -100,14 +109,14 @@ const refreshPage = () => {
           <div class="icon-box">
             <LayoutDashboard :size="16" />
           </div>
-          <span>Dashboard</span>
+          <span>แดชบอร์ด</span>
         </router-link>
 
         <router-link to="/analytics" class="menu-item" active-class="active" @click="emit('close')">
           <div class="icon-box">
             <BarChart3 :size="16" />
           </div>
-          <span>Analytics</span>
+          <span>วิเคราะห์พลังงาน</span>
         </router-link>
 
         <router-link
@@ -119,29 +128,17 @@ const refreshPage = () => {
           <div class="icon-box">
             <CalendarClock :size="16" />
           </div>
-          <span>Room Schedule</span>
+          <span>ตารางเรียน</span>
         </router-link>
 
         <div v-if="isLoggedIn">
-          <p class="admin-tools-header">ADMIN TOOLS</p>
+          <p class="admin-tools-header">เครื่องมือผู้ดูแลระบบ</p>
 
           <router-link to="/devices" class="menu-item" active-class="active" @click="emit('close')">
             <div class="icon-box">
               <Cpu :size="16" />
             </div>
-            <span>Device Mgmt</span>
-          </router-link>
-
-          <router-link
-            to="/schedule"
-            class="menu-item"
-            active-class="active"
-            @click="emit('close')"
-          >
-            <div class="icon-box">
-              <Timer :size="16" />
-            </div>
-            <span>Schedule Mgmt</span>
+            <span>จัดการอุปกรณ์</span>
           </router-link>
 
           <router-link
@@ -153,7 +150,7 @@ const refreshPage = () => {
             <div class="icon-box">
               <Users :size="16" />
             </div>
-            <span>User Mgmt</span>
+            <span>จัดการผู้ใช้งาน</span>
           </router-link>
 
           <router-link
@@ -165,27 +162,42 @@ const refreshPage = () => {
             <div class="icon-box">
               <Bell :size="16" />
             </div>
-            <span>Notifications</span>
+            <span>การแจ้งเตือน</span>
           </router-link>
         </div>
       </nav>
 
       <div class="auth-buttons">
-        <button v-if="isLoggedIn" class="action-btn logout" @click="handleLogout">
+        <button v-if="isLoggedIn" class="action-btn logout" @click="confirmLogout">
           <div class="icon-box">
             <LogOut :size="16" />
           </div>
-          <span>Logout</span>
+          <span>ออกจากระบบ</span>
         </button>
         <button v-else class="action-btn login" @click="handleLogin">
           <div class="icon-box white">
             <LogIn :size="16" />
           </div>
-          <span>Login Admin</span>
+          <span>เข้าสู่ระบบ</span>
         </button>
       </div>
     </template>
   </aside>
+
+  <!-- Custom Logout Confirmation Modal -->
+  <div v-if="showLogoutModal" class="modal-overlay" @click.self="cancelLogout">
+    <div class="modal-content">
+      <div class="modal-icon">
+        <LogOut :size="32" />
+      </div>
+      <h3>ออกจากระบบ</h3>
+      <p>คุณต้องการออกจากระบบใช่หรือไม่?</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" @click="cancelLogout">ยกเลิก</button>
+        <button class="btn-confirm" @click="handleLogout">ออกจากระบบ</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -452,6 +464,119 @@ const refreshPage = () => {
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 360px;
+  text-align: center;
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-icon {
+  width: 64px;
+  height: 64px;
+  background-color: #fee2e2;
+  color: #ef4444;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 15px;
+}
+
+.modal-content h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.25rem;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.modal-content p {
+  color: #64748b;
+  margin-bottom: 25px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.btn-cancel:hover {
+  background-color: #e2e8f0;
+  color: #334155;
+}
+
+.btn-confirm {
+  background-color: #ef4444;
+  color: white;
+}
+
+.btn-confirm:hover {
+  background-color: #dc2626;
+  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
   }
 }
 </style>
