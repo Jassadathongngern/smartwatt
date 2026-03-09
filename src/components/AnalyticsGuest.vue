@@ -897,10 +897,7 @@ console.error("DEBUG: AnalyticsGuest script finished loading.");
     <div class="page-header">
       <div class="header-content">
         <div>
-          <h1 class="page-title">
-            วิเคราะห์การใช้พลังงานไฟฟ้า
-            <span v-if="isDemoMode" class="sim-pill">🧪 Simulation Active</span>
-          </h1>
+          <h1 class="page-title">วิเคราะห์การใช้พลังงานไฟฟ้า</h1>
           <p class="text-gray-500">จัดการและวิเคราะห์ข้อมูลการใช้พลังงานเชิงลึก</p>
         </div>
 
@@ -1049,7 +1046,7 @@ console.error("DEBUG: AnalyticsGuest script finished loading.");
           <div>
             <h3>การเปรียบเทียบการใช้พลังงานไฟฟ้ารายเดือน</h3>
             <small
-              >เปรียบเทียบการใช้พลังงานรายสัปดาห์ | ชั้น {{ selectedFloor }} ห้อง
+              >เปรียบเทียบการใช้พลังงานรายวันของเดือนที่เลือก | ชั้น {{ selectedFloor }} ห้อง
               {{ selectedRoom }}</small
             >
             <div style="font-size: 0.85rem; color: #4b5563; margin-top: 4px">
@@ -1639,30 +1636,6 @@ console.error("DEBUG: AnalyticsGuest script finished loading.");
   grid-template-columns: 1fr 1fr;
   gap: 25px;
   margin-bottom: 25px;
-}
-
-.sim-pill {
-  font-size: 0.9rem;
-  background: #fef2f2;
-  color: #dc2626;
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 1px solid #fca5a5;
-  margin-left: 10px;
-  vertical-align: middle;
-  animation: pulse-border 2s infinite;
-}
-
-@keyframes pulse-border {
-  0% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
-  }
 }
 
 @media (max-width: 1024px) {
