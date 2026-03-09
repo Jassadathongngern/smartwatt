@@ -39,7 +39,7 @@ ChartJS.register(
 // --- Auth & Role State ---
 const userRole = ref(null); // เก็บ Role ID: 1=Admin, 2=Guest
 const isAuthChecked = ref(false);
-const { isDemoMode, deviceMappings } = useBuildingData();
+const { deviceMappings } = useBuildingData();
 
 // --- State & Filters ---
 const dateRange = ref("24H");
@@ -120,54 +120,6 @@ const handleDateSelection = (datePayload) => {
 
 // --- 2. Fetch History (สำหรับกราฟล่างและตาราง) ---
 const fetchHistoryData = async () => {
-  console.error("DEBUG: fetchHistoryData triggered", {
-    isLoading: isLoading.value,
-    isDemo: isDemoMode.value,
-  });
-  if (isLoading.value) return;
-  isLoading.value = true;
-  processedLogs.value = [];
-
-  if (isDemoMode.value) {
-    // 🧪 Simulation Mode: Generate fake logs in memory
-    setTimeout(() => {
-      const simulated = [];
-      const count = dateRange.value === "24H" ? 48 : 100;
-      for (let i = 0; i < count; i++) {
-        const d = new Date();
-        d.setMinutes(d.getMinutes() - i * 30);
-        const h = d.getHours();
-
-        // Sinusoidal Power Curve: Peak ~2.8kW for Classroom (2 ACs)
-        const base = 150; // Watts
-        const peak = 2600; // Watts
-        const curve = Math.max(0, Math.sin(((h - 7) * Math.PI) / 12));
-        const val = base + curve * peak + Math.random() * 100;
-
-        simulated.push({
-          rawTime: d.getTime(),
-          timeObj: d,
-          time: d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
-          date: d.toLocaleDateString("th-TH"),
-          floor: "Floor 3",
-          room: `Room 30${Math.floor(Math.random() * 5) + 1}`,
-          deviceId: "Sim-Node",
-          power: val.toFixed(0),
-          volt: 220 + (Math.random() * 1 - 0.5),
-          amp: (val / 220).toFixed(2),
-          temp: (24 + Math.sin((h * Math.PI) / 12) * 2).toFixed(1),
-          humid: (55 + Math.random() * 3).toFixed(0),
-          status: "Normal",
-          hasEnv: true,
-          hasPower: true,
-        });
-      }
-      processedLogs.value = simulated;
-      isLoading.value = false;
-    }, 500);
-    return;
-  }
-
   try {
     const logsRef = collection(dbFirestore, "measurements");
     const now = new Date();
@@ -383,22 +335,6 @@ const fetchHistoryData = async () => {
 const fetchMonthlyComparison = async () => {
   if (!selectedMonth1.value || !selectedMonth2.value) return;
   isMonthlyLoading.value = true;
-
-  if (isDemoMode.value) {
-    // 🧪 Simulation Mode: Generate fake comparison data in memory
-    setTimeout(() => {
-      month1Summary.value = {
-        total: 450.5, // Realistic monthly kWh for 1 classroom
-        weeks: [110.2, 115.5, 110.8, 114.0],
-      };
-      month2Summary.value = {
-        total: 420.2,
-        weeks: [100.5, 105.2, 110.0, 104.5],
-      };
-      isMonthlyLoading.value = false;
-    }, 600);
-    return;
-  }
 
   try {
     const logsRef = collection(dbFirestore, "measurements");

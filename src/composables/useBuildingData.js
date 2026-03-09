@@ -10,8 +10,6 @@ const allBuildingTotal = ref(0);
 const dailyEnergy = ref(0);
 const cost = ref(0);
 const totalUsage = ref(0);
-const isDemoMode = ref(false); // 🧪 Demo Mode via Remote Toggle
-const demoInterval = ref(null);
 
 // Environment & Electrical Metrics
 const pm25 = ref(0);
@@ -58,9 +56,6 @@ const normalizeTime = (time) => {
 // --- Logic: Process Data ---
 const processData = () => {
   if (!devices.value || !buildingConfig.value) return;
-
-  // 🧪 Anti-Flicker: Skip if Demo Mode is ACTIVE
-  if (isDemoMode.value) return;
 
   // 1. Reset Totals
   let rawTotalPower = 0; // Watts
@@ -177,7 +172,12 @@ const processData = () => {
           }
 
           if (foundPowerForDevice && deviceRoomPower >= 0 && deviceRoomPower < 50000) {
-            roomPowerW += deviceRoomPower;
+            // Force power to 0 if device is offline or in error state
+            if (roomStatus === "offline") {
+              roomPowerW += 0;
+            } else {
+              roomPowerW += deviceRoomPower;
+            }
             hasPower = true;
           }
 
@@ -272,83 +272,7 @@ const processData = () => {
   });
   if (countBat > 0) battery.value = Math.round(sumBat / countBat);
 
-  allBuildingTotal.value = (rawTotalPower / 1000).toFixed(2);
-
-  // Calculate Daily Energy (kWh)
-  const estimatedDaily = (rawTotalPower * 24) / 1000;
-  dailyEnergy.value = isNaN(estimatedDaily) ? "0.00" : estimatedDaily.toFixed(2);
-
-  // 🆕 Calculate Total Usage (kWh) from all devices
-  let buildingEnergyTotal = 0;
-  if (devices.value) {
-    Object.values(devices.value).forEach((dev) => {
-      // Some meters report 'total_energy', 'energy', 'kWh', or 'e'
-      const eVal = Number(dev.total_energy || dev.energy || dev.kWh || dev.e || 0);
-      buildingEnergyTotal += eVal;
-    });
-  }
-  totalUsage.value = buildingEnergyTotal > 0 ? buildingEnergyTotal.toFixed(1) : "0.0";
-
-  const calculatedCost = Number(dailyEnergy.value) * 4.5;
-  cost.value = isNaN(calculatedCost) ? "0.00" : calculatedCost.toFixed(2);
-
-  // --- 🧪 ⚡ Demo Mode Overrides (Controlled by Bash) ⚡ 🧪 ---
-  if (isDemoMode.value) {
-    const now = new Date();
-    const hour = now.getHours();
-
-    // Simulate sinusoidal power for a Classroom (Peak at ~3.0kW for 2 ACs + Lights)
-    const basePower = 0.15; // Standby/Lights
-    const peakEffect = Math.max(0, Math.sin(((hour + now.getMinutes() / 60 - 7) * Math.PI) / 12));
-    const simulatedPower = basePower + peakEffect * 2.8 + Math.random() * 0.1;
-
-    allBuildingTotal.value = simulatedPower.toFixed(2);
-    dailyEnergy.value = (simulatedPower * 12.5).toFixed(2); // Reduced for classroom usage hours
-    cost.value = (Number(dailyEnergy.value) * 4.5).toFixed(2);
-    totalUsage.value = (15420.5 + now.getHours() * 0.8).toFixed(1);
-
-    temperature.value = (
-      25.5 +
-      Math.sin((hour * Math.PI) / 12) * 1.5 +
-      Math.random() * 0.3
-    ).toFixed(1);
-    humidity.value = (55 - Math.sin((hour * Math.PI) / 12) * 3 + Math.random() * 1).toFixed(0);
-    pm25.value = (8 + Math.random() * 5).toFixed(0);
-    voltage.value = (220.2 + (Math.random() * 0.4 - 0.2)).toFixed(1);
-    current.value = ((Number(allBuildingTotal.value) * 1000) / 220).toFixed(2);
-    battery.value = 98;
-    systemHealth.value = 100;
-    gatewayStatus.value = "Active";
-    lastUpdate.value = now.toLocaleTimeString("th-TH") + " (SIM)";
-
-    // Randomize Floor Data - Specific to Floor 3
-    floorData.value.forEach((floor) => {
-      if (floor.id === "3") {
-        floor.status = "online";
-        let floorTotal = 0;
-        floor.rooms.forEach((room) => {
-          room.status = "online";
-          const roomW = (simulatedPower * 1000) / floor.rooms.length; // Spread simulated power
-          room.power = (roomW / 1000).toFixed(2);
-          room.temperature = (24 + Math.random() * 2).toFixed(1);
-          room.humidity = (50 + Math.random() * 4).toFixed(0);
-          room.pm25 = (5 + Math.random() * 5).toFixed(0);
-          floorTotal += roomW;
-        });
-        floor.totalPower = (floorTotal / 1000).toFixed(2);
-      } else {
-        // Floors 1 and 2 are inactive or standby
-        floor.status = "online";
-        floor.rooms.forEach((room) => {
-          room.status = "online";
-          room.power = "0.00";
-        });
-        floor.totalPower = "0.00";
-      }
-    });
-  }
-
-  // 6. Evaluate Gateway Status
+  // --- 6. Evaluate Gateway Status ---
   let maxGatewayTime = 0;
   Object.values(gateways.value).forEach((gw) => {
     let gwTime = gw.last_update || 0;
@@ -382,31 +306,51 @@ const processData = () => {
     gatewayStatus.value = currentTime.value - maxGatewayTime > offlineGwMs ? "Offline" : "Active";
   }
 
-  // --- 🖋️ System Recovery Logging (ปรับปรุงใหม่ 🚀) ---
+  // --- 4. Global Offline Override (If Gateway is Offline, Power is 0) ---
+  if (gatewayStatus.value === "Offline") {
+    allBuildingTotal.value = "0.00";
+    rawTotalPower = 0;
+    floorData.value.forEach((floor) => {
+      floor.totalPower = "0.00";
+      floor.rooms.forEach((room) => {
+        room.power = "0.00";
+        room.status = "offline";
+      });
+    });
+  } else {
+    allBuildingTotal.value = (rawTotalPower / 1000).toFixed(2);
+  }
+
+  // Calculate Daily Energy (kWh)
+  const estimatedDaily = (rawTotalPower * 24) / 1000;
+  dailyEnergy.value = isNaN(estimatedDaily) ? "0.00" : estimatedDaily.toFixed(2);
+
+  // 🆕 Calculate Total Usage (kWh) from all devices
+  let buildingEnergyTotal = 0;
+  if (devices.value) {
+    Object.values(devices.value).forEach((dev) => {
+      const eVal = Number(dev.total_energy || dev.energy || dev.kWh || dev.e || 0);
+      buildingEnergyTotal += eVal;
+    });
+  }
+  totalUsage.value = buildingEnergyTotal > 0 ? buildingEnergyTotal.toFixed(1) : "0.0";
+
+  const calculatedCost = Number(dailyEnergy.value) * 4.5;
+  cost.value = isNaN(calculatedCost) ? "0.00" : calculatedCost.toFixed(2);
+
+  // --- 🖋️ System Recovery Logging ---
   if (previousGatewayStatus === "Offline" && gatewayStatus.value === "Active") {
     const now = Date.now();
-    const LOG_COOLDOWN_MS = 5 * 60 * 1000; // Cooldown 5 นาที (กันสแปม)
-
+    const LOG_COOLDOWN_MS = 5 * 60 * 1000;
     if (now - lastLogTimestamp > LOG_COOLDOWN_MS) {
-      // ค้นหาว่า Gateway ตัวไหนที่เพิ่ง Active กลับมา
       let activeGwIds = [];
       Object.entries(gateways.value).forEach(([id, gw]) => {
         let gwTime = gw.last_update || 0;
         if (typeof gwTime === "string") gwTime = new Date(gwTime).getTime();
         else if (gwTime > 0 && gwTime < 10000000000) gwTime *= 1000;
-
-        const offlineGwThresh = Number(alertSettings.value?.gatewayOfflineTimeout || 15);
-        const offlineGwMs = offlineGwThresh * 60 * 1000;
-
-        if (currentTime.value - gwTime <= offlineGwMs) {
-          activeGwIds.push(id);
-        }
+        if (currentTime.value - gwTime <= offlineGwMs) activeGwIds.push(id);
       });
-
-      // ตั้งชื่ออุปกรณ์ลงใน Log (ถ้ามีหลายตัวจับรวมด้วยลูกน้ำ)
       const gwName = activeGwIds.length > 0 ? activeGwIds.join(", ") : "Main Gateway";
-
-      console.log(`System Recovery Detected: [${gwName}] Offline -> Active`);
       push(dbRef(rtdb, "system_logs/reconnections"), {
         event: "Recovery",
         target: "Gateway",
@@ -415,10 +359,7 @@ const processData = () => {
         timestamp: new Date().toISOString(),
         message: `กู้คืนการเชื่อมต่อสำเร็จ: อุปกรณ์ [${gwName}] (Recovery from Offline)`,
       });
-
-      lastLogTimestamp = now; // อัปเดตเวลาล่าสุดที่ยิง Log
-    } else {
-      console.log("Recovery detected but skipped due to cooldown.");
+      lastLogTimestamp = now;
     }
   }
   previousGatewayStatus = gatewayStatus.value;
@@ -496,7 +437,7 @@ export function useBuildingData() {
     setInterval(() => {
       currentTime.value = Date.now();
       processData();
-    }, 60000);
+    }, 30000);
 
     const configRef = dbRef(rtdb, "building_configs");
     onValue(configRef, (snapshot) => {
@@ -576,30 +517,6 @@ export function useBuildingData() {
     });
   }
 
-  // --- 8. Simulation Mode Listener ---
-  // A. Database Trigger
-  const simRef = dbRef(rtdb, "system_logs/simulation_mode");
-  onValue(simRef, (snapshot) => {
-    const dbVal = snapshot.val() === true;
-
-    // B. URL Parameter Trigger (Fallback - Zero Config)
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlVal = urlParams.get("sim") === "true" || urlParams.get("demo") === "true";
-
-    const val = dbVal || urlVal;
-    isDemoMode.value = val;
-
-    if (demoInterval.value) clearInterval(demoInterval.value);
-
-    if (val) {
-      console.log("🧪 Simulation Mode ACTIVATED via Remote Toggle");
-      processData();
-      demoInterval.value = setInterval(processData, 3000);
-    } else {
-      processData();
-    }
-  });
-
   return {
     gatewayStatus,
     lastUpdate,
@@ -621,7 +538,6 @@ export function useBuildingData() {
       const f = floorData.value.find((x) => x.id === id);
       if (f) f.isExpanded = !f.isExpanded;
     },
-    isDemoMode,
     deviceMappings,
   };
 }

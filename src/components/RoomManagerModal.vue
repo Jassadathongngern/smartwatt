@@ -226,7 +226,6 @@ const handleDeleteRoom = async (floorKey, roomName) => {
                     <option value="Classroom">ห้องเรียน</option>
                     <option value="Office">ห้องพักครู/สำนักงาน</option>
                     <option value="Laboratory">ห้องแล็บ</option>
-                    <option value="Storage Room">ห้องเก็บของ</option>
                     <option value="Meeting Room">ห้องประชุม</option>
                   </select>
                 </div>
@@ -434,11 +433,10 @@ const handleDeleteRoom = async (floorKey, roomName) => {
                   class="premium-input"
                   style="padding-left: 16px"
                 >
-                  <option value="Classroom">ห้องเรียน</option>
-                  <option value="Office">สำนักงาน</option>
-                  <option value="Laboratory">ห้องปฏิบัติการ</option>
-                  <option value="Storage Room">ห้องเก็บของ</option>
-                  <option value="Meeting Room">ห้องประชุม</option>
+                  <option value="Classroom">Classroom</option>
+                  <option value="Office">Office</option>
+                  <option value="Laboratory">Laboratory</option>
+                  <option value="Meeting Room">Meeting Room</option>
                 </select>
               </div>
             </div>

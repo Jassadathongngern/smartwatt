@@ -233,7 +233,7 @@ onMounted(async () => {
   // Real-time interval
   chartInterval = setInterval(() => {
     addDataPoint(props.livePower);
-  }, 30000); // 30s to be slightly more conservative than 10s
+  }, 30000);
 });
 
 onUnmounted(() => {
