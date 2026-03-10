@@ -16,6 +16,8 @@ import { Line } from "vue-chartjs";
 // --- Firebase Imports ---
 import { db } from "../firebase";
 import { collection, query, where, orderBy, getDocs, limit } from "firebase/firestore";
+import { useBuildingData } from "../composables/useBuildingData";
+import { normalizeMeasurement } from "../utils/measurementUtils";
 
 ChartJS.register(
   CategoryScale,
@@ -41,6 +43,7 @@ const dataF1 = ref([]);
 const dataF2 = ref([]);
 const dataF3 = ref([]);
 const timestampsRef = ref([]); // To track exact time for caching
+const { deviceMappings, getFloorOfDevice, getRoomOfDevice } = useBuildingData();
 
 const CACHE_KEY = "smartwatt_energy_history";
 
@@ -128,56 +131,35 @@ const syncFirestoreData = async () => {
 
     if (!snapshot.empty) {
       snapshot.forEach((doc) => {
-        const data = doc.data();
-        let ts;
-        if (data.timestamp && data.timestamp.toDate) {
-          ts = data.timestamp.toDate().getTime();
-        } else if (data.timestamp) {
-          const isoStr = data.timestamp.toString().includes(" ")
-            ? data.timestamp.replace(" ", "T")
-            : data.timestamp;
-          ts = new Date(isoStr).getTime();
-        } else {
-          return;
-        }
+        const records = normalizeMeasurement(
+          doc,
+          deviceMappings.value,
+          getFloorOfDevice,
+          getRoomOfDevice,
+        );
+        if (records.length === 0) return;
 
-        if (isNaN(ts)) return;
+        const ts = records[0].rawTimestamp.getTime();
+        const label = records[0].time;
 
-        // Ensure no duplicate timestamps
+        let f1Val = 0,
+          f2Val = 0,
+          f3Val = 0;
+
+        records.forEach((record) => {
+          const powerKW = record.power / 1000;
+          const floor = record.floor.replace("Floor ", "");
+          if (floor === "1") f1Val += powerKW;
+          else if (floor === "2") f2Val += powerKW;
+          else if (floor === "3" || floor === "Unknown") f3Val += powerKW;
+        });
+
+        // Ensure no duplicate timestamps (if we already had it from cache or prev docs)
         if (!timestampsRef.value.includes(ts)) {
-          const date = new Date(ts);
-          const label = date.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
-
           labelsRef.value.push(label);
-          // Mapping logic:
-          // 1. Prioritize f1, f2, f3 (Floor aggregates in kW)
-          // 2. Try power_A/B/C or power_ch1/2/3 or ch1/2/3_power (Module data in Watts)
-          // 3. Fallback to total 'power' as Floor 3 (Total Watt)
-          dataF1.value.push(
-            (
-              Number(data.f1) ||
-              Number(data.power_ch1 || data.ch1_power || data.power_A || 0) / 1000
-            ).toFixed(2),
-          );
-          dataF2.value.push(
-            (
-              Number(data.f2) ||
-              Number(data.power_ch2 || data.ch2_power || data.power_B || 0) / 1000
-            ).toFixed(2),
-          );
-          dataF3.value.push(
-            (
-              Number(data.f3) ||
-              Number(
-                data.power_ch3 ||
-                  data.ch3_power ||
-                  data.power_C ||
-                  data.total_power ||
-                  data.power ||
-                  0,
-              ) / 1000
-            ).toFixed(2),
-          );
+          dataF1.value.push(f1Val.toFixed(2));
+          dataF2.value.push(f2Val.toFixed(2));
+          dataF3.value.push(f3Val.toFixed(2));
           timestampsRef.value.push(ts);
         }
       });

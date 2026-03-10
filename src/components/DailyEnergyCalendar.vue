@@ -101,6 +101,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
 import { getFirestore, collection, query, where, orderBy, getDocs } from "firebase/firestore";
+import { useBuildingData } from "../composables/useBuildingData";
+import { normalizeMeasurement } from "../utils/measurementUtils";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -129,6 +131,8 @@ const monthlyData = ref({});
 const isLoading = ref(false);
 const modalLoading = ref(false);
 const hourlyData = ref(new Array(24).fill(0));
+
+const { deviceMappings, getFloorOfDevice, getRoomOfDevice } = useBuildingData();
 
 const currentYear = computed(() => currentDate.value.getFullYear());
 const currentMonth = computed(() => currentDate.value.getMonth());
@@ -175,70 +179,66 @@ const fetchMonthData = async () => {
     }
 
     snapshot.forEach((doc) => {
-      const data = doc.data();
-      let recordDate;
-      if (data.timestamp && data.timestamp.toDate) {
-        recordDate = data.timestamp.toDate();
-      } else if (data.timestamp) {
-        const isoStr = data.timestamp.toString().includes(" ")
-          ? data.timestamp.replace(" ", "T")
-          : data.timestamp;
-        recordDate = new Date(isoStr);
-      } else {
-        return;
-      }
+      const records = normalizeMeasurement(
+        doc,
+        deviceMappings.value,
+        getFloorOfDevice,
+        getRoomOfDevice,
+      );
 
-      if (isNaN(recordDate.getTime())) return;
+      records.forEach((record) => {
+        const y = record.rawTimestamp.getFullYear();
+        const m = String(record.rawTimestamp.getMonth() + 1).padStart(2, "0");
+        const d = String(record.rawTimestamp.getDate()).padStart(2, "0");
+        const dateKey = `${y}-${m}-${d}`;
 
-      const y = recordDate.getFullYear();
-      const m = String(recordDate.getMonth() + 1).padStart(2, "0");
-      const d = String(recordDate.getDate()).padStart(2, "0");
-      const dateKey = `${y}-${m}-${d}`;
+        if (!tempDaily[dateKey]) {
+          tempDaily[dateKey] = {
+            deviceEnergies: {}, // { fullDeviceId: [e1, e2, ...] }
+            sumTemp: 0,
+            countTemp: 0,
+            sumHum: 0,
+            countHum: 0,
+            sumDust: 0,
+            countDust: 0,
+          };
+        }
 
-      if (!tempDaily[dateKey]) {
-        tempDaily[dateKey] = {
-          sumPower: 0,
-          countPower: 0,
-          sumTemp: 0,
-          countTemp: 0,
-          sumHum: 0,
-          countHum: 0,
-          sumDust: 0,
-          countDust: 0,
-        };
-      }
+        if (typeof record.energy === "number" && !isNaN(record.energy)) {
+          const devKey = record.fullDeviceId;
+          if (!tempDaily[dateKey].deviceEnergies[devKey]) {
+            tempDaily[dateKey].deviceEnergies[devKey] = [];
+          }
+          tempDaily[dateKey].deviceEnergies[devKey].push(record.energy);
+        }
 
-      const power = Number(data.total_power || data.power || data.watt || data.p || data.w || 0);
-      if (power > 0) {
-        tempDaily[dateKey].sumPower += power;
-        tempDaily[dateKey].countPower++;
-      }
-
-      const temp = Number(data.temperature || data.temp || 0);
-      if (temp !== 0) {
-        tempDaily[dateKey].sumTemp += temp;
-        tempDaily[dateKey].countTemp++;
-      }
-
-      const hum = Number(data.humidity || data.hum || 0);
-      if (hum !== 0) {
-        tempDaily[dateKey].sumHum += hum;
-        tempDaily[dateKey].countHum++;
-      }
-
-      const dust = Number(data.pm2_5 || data.pm25 || data.dust || 0);
-      if (dust !== 0) {
-        tempDaily[dateKey].sumDust += dust;
-        tempDaily[dateKey].countDust++;
-      }
+        if (record.temp !== 0) {
+          tempDaily[dateKey].sumTemp += record.temp;
+          tempDaily[dateKey].countTemp++;
+        }
+        if (record.humid !== 0) {
+          tempDaily[dateKey].sumHum += record.humid;
+          tempDaily[dateKey].countHum++;
+        }
+        if (record.pm25 !== 0) {
+          tempDaily[dateKey].sumDust += record.pm25;
+          tempDaily[dateKey].countDust++;
+        }
+      });
     });
 
     for (const [key, val] of Object.entries(tempDaily)) {
-      const avgPowerW = val.countPower > 0 ? val.sumPower / val.countPower : 0;
-      const energyKwh = (avgPowerW * 24) / 1000;
+      let dailyKWh = 0;
+      Object.values(val.deviceEnergies).forEach((energies) => {
+        if (energies.length >= 2) {
+          const earliest = energies[0];
+          const latest = energies[energies.length - 1];
+          dailyKWh += Math.max(0, latest - earliest);
+        }
+      });
 
       monthlyData.value[key] = {
-        kwh: parseFloat(energyKwh.toFixed(2)),
+        kwh: parseFloat(dailyKWh.toFixed(2)),
         avgTemp: val.countTemp > 0 ? (val.sumTemp / val.countTemp).toFixed(1) : 0,
         avgHum: val.countHum > 0 ? (val.sumHum / val.countHum).toFixed(1) : 0,
         avgDust: val.countDust > 0 ? (val.sumDust / val.countDust).toFixed(0) : 0,
@@ -378,36 +378,31 @@ const openDayModal = async (day) => {
       countDust = 0;
 
     snapshot.forEach((doc) => {
-      const d = doc.data();
-      let recordDate;
-      if (d.timestamp && d.timestamp.toDate) {
-        recordDate = d.timestamp.toDate();
-      } else if (d.timestamp) {
-        const isoStr = d.timestamp.toString().includes(" ")
-          ? d.timestamp.replace(" ", "T")
-          : d.timestamp;
-        recordDate = new Date(isoStr);
-      } else {
-        return;
-      }
-      if (isNaN(recordDate.getTime())) return;
+      const records = normalizeMeasurement(
+        doc,
+        deviceMappings.value,
+        getFloorOfDevice,
+        getRoomOfDevice,
+      );
 
-      const h = recordDate.getHours();
-      hourlySum[h] += Number(d.power || 0);
-      hourlyCount[h]++;
+      records.forEach((record) => {
+        const h = record.rawTimestamp.getHours();
+        hourlySum[h] += record.power;
+        hourlyCount[h]++;
 
-      if (d.temperature || d.temp) {
-        sumTemp += Number(d.temperature || d.temp);
-        countTemp++;
-      }
-      if (d.humidity || d.hum) {
-        sumHum += Number(d.humidity || d.hum);
-        countHum++;
-      }
-      if (d.pm25 || d.dust) {
-        sumDust += Number(d.pm25 || d.dust);
-        countDust++;
-      }
+        if (record.temp !== 0) {
+          sumTemp += record.temp;
+          countTemp++;
+        }
+        if (record.humid !== 0) {
+          sumHum += record.humid;
+          countHum++;
+        }
+        if (record.pm25 !== 0) {
+          sumDust += record.pm25;
+          countDust++;
+        }
+      });
     });
 
     hourlyData.value = hourlySum.map((sum, i) => {

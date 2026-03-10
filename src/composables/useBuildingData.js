@@ -538,6 +538,30 @@ export function useBuildingData() {
       const f = floorData.value.find((x) => x.id === id);
       if (f) f.isExpanded = !f.isExpanded;
     },
+    getFloorOfDevice: (deviceId) => {
+      for (const floorNum in buildingConfig.value) {
+        const rooms = buildingConfig.value[floorNum].rooms || {};
+        for (const rName in rooms) {
+          if (rooms[rName].deviceId === deviceId) return floorNum;
+        }
+      }
+      return "Unknown";
+    },
+    getRoomOfDevice: (deviceId) => {
+      if (deviceMappings.value?.[deviceId]) {
+        const rooms = Object.values(deviceMappings.value[deviceId]).filter(
+          (v) => typeof v === "string" && !v.includes("label"),
+        );
+        if (rooms.length > 0) return rooms[0];
+      }
+      for (const floorNum in buildingConfig.value) {
+        const rooms = buildingConfig.value[floorNum].rooms || {};
+        for (const rName in rooms) {
+          if (rooms[rName].deviceId === deviceId) return rName;
+        }
+      }
+      return "Unknown Room";
+    },
     deviceMappings,
   };
 }

@@ -15,12 +15,12 @@ import {
 } from "chart.js";
 import { Line, Bar } from "vue-chartjs";
 
-// --- Firebase Imports ---
 import { auth, rtdb, db } from "../firebase";
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 import { ref as dbRef, onValue, get } from "firebase/database";
 import { useBuildingData } from "../composables/useBuildingData";
 import DailyEnergyCalendar from "./DailyEnergyCalendar.vue"; // Import Calendar
+import { normalizeMeasurement } from "../utils/measurementUtils";
 
 const dbFirestore = db;
 
@@ -39,7 +39,6 @@ ChartJS.register(
 // --- Auth & Role State ---
 const userRole = ref(null); // เก็บ Role ID: 1=Admin, 2=Guest
 const isAuthChecked = ref(false);
-const { deviceMappings } = useBuildingData();
 
 // --- State & Filters ---
 const dateRange = ref("24H");
@@ -47,6 +46,18 @@ const selectedFloor = ref("All");
 const selectedRoom = ref("All");
 const isLoading = ref(false);
 const isMonthlyLoading = ref(false);
+
+// --- Fetch Optimization ---
+const fetchLock = ref(false);
+let fetchTimeout = null;
+
+const triggerFetch = (type = "all") => {
+  if (fetchTimeout) clearTimeout(fetchTimeout);
+  fetchTimeout = setTimeout(() => {
+    if (type === "history" || type === "all") fetchHistoryData();
+    if (type === "monthly" || type === "all") fetchMonthlyComparison();
+  }, 100);
+};
 
 // 💡 1. State สำหรับเลือกเดือนเปรียบเทียบ
 const currentDate = new Date();
@@ -120,6 +131,10 @@ const handleDateSelection = (datePayload) => {
 
 // --- 2. Fetch History (สำหรับกราฟล่างและตาราง) ---
 const fetchHistoryData = async () => {
+  if (fetchLock.value) return;
+  fetchLock.value = true;
+  isLoading.value = true;
+
   try {
     const logsRef = collection(dbFirestore, "measurements");
     const now = new Date();
@@ -137,203 +152,59 @@ const fetchHistoryData = async () => {
       queryEnd = now;
     }
 
-    // Helper: format Date to "YYYY-MM-DD HH:MM:SS" (Thai Timezone)
     const formatToThaiString = (date) => {
       const pad = (num) => String(num).padStart(2, "0");
-      // Adjust to UTC+7 for formatting if needed, but Date in constructor from specificDate is already local
-      const y = date.getFullYear();
-      const m = pad(date.getMonth() + 1);
-      const d = pad(date.getDate());
-      const hh = pad(date.getHours());
-      const mm = pad(date.getMinutes());
-      const ss = pad(date.getSeconds());
-      return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
     };
 
     const startStr = formatToThaiString(queryStart);
     const endStr = formatToThaiString(queryEnd);
 
-    const queryConstraints = [
+    const q = query(
+      logsRef,
       where("timestamp", ">=", startStr),
       where("timestamp", "<=", endStr),
       orderBy("timestamp", "desc"),
-    ];
-
-    const q = query(logsRef, ...queryConstraints, limit(500));
+      limit(500),
+    );
 
     const snapshot = await getDocs(q);
     const tempLogs = [];
 
-    if (snapshot.empty) {
-      console.warn(
-        `[Analytics] No records found for ${dateRange.value} (${queryStart.toLocaleString()} to ${queryEnd.toLocaleString()})`,
-      );
-
-      // 🕵️ Debug: Check IF ANYTHING exists in Firestore
-      const debugQ = query(logsRef, orderBy("timestamp", "desc"), limit(5));
-      const debugSnap = await getDocs(debugQ);
-      if (!debugSnap.empty) {
-        console.log("[Analytics] DEBUG: No hits for filters, but found some records in Firestore:");
-        debugSnap.forEach((d) => {
-          const dd = d.data();
-          console.log(
-            ` - ID: ${d.id}, deviceId in doc: ${dd.deviceId || dd.device_name}, TS: ${dd.timestamp?.toDate ? dd.timestamp.toDate() : dd.timestamp}`,
-          );
-        });
-      } else {
-        console.error(
-          "[Analytics] DEBUG: The 'measurements' collection in Firestore is EMPTY or inaccessible.",
-        );
-      }
-    } else {
-      console.log(`[Analytics] Success! Found ${snapshot.size} raw documents in Firestore.`);
-    }
-
     snapshot.forEach((doc) => {
-      try {
-        const data = doc.data();
-        let recordDate;
-        if (data.timestamp && data.timestamp.toDate) {
-          recordDate = data.timestamp.toDate();
-        } else if (data.timestamp) {
-          const isoStr = data.timestamp.toString().includes(" ")
-            ? data.timestamp.replace(" ", "T")
-            : data.timestamp;
-          recordDate = new Date(isoStr);
-        } else {
-          console.warn("[Analytics] Missing timestamp in doc:", doc.id);
+      const records = normalizeMeasurement(
+        doc,
+        deviceMappings.value,
+        getFloorOfDevice,
+        getRoomOfDevice,
+      );
+      records.forEach((record) => {
+        // Apply Filters (Remaining component-specific filters)
+        if (
+          selectedFloor.value !== "All" &&
+          record.floor.replace("Floor ", "") !== selectedFloor.value
+        )
           return;
-        }
-
-        if (isNaN(recordDate.getTime())) {
-          console.warn("[Analytics] Invalid date format in doc:", doc.id, data.timestamp);
-          return;
-        }
-
-        const deviceId = data.deviceId || data.device_name || data.devEui || "Unknown";
-
-        // Determine what rooms this record covers
-        const mappings = deviceMappings.value?.[deviceId] || null;
-
-        // We create a list of entries from this one doc (e.g. if one doc has 3 rooms)
-        const entries = [];
-
-        if (mappings) {
-          // Sub-metered device
-          Object.entries(mappings).forEach(([ch, rName]) => {
-            // Extract numeric channel (handles "1" or "ch1")
-            const channelNum = ch.replace("ch", "");
-
-            // Skip labels or non-numeric keys
-            if (ch.includes("label") || isNaN(channelNum) || channelNum === "") {
-              return;
-            }
-
-            const pKey = `ch${channelNum}_power`;
-            const vKey = `ch${channelNum}_voltage`;
-            const iKey = `ch${ch}_current`; // The data might use ch1_current or current_ch1
-
-            // Support various naming conventions from different bridge versions
-            const altP =
-              channelNum === "1" ? "power_A" : channelNum === "2" ? "power_B" : "power_C";
-            const altV =
-              channelNum === "1" ? "voltage_A" : channelNum === "2" ? "voltage_B" : "voltage_C";
-            const altI =
-              channelNum === "1" ? "current_A" : channelNum === "2" ? "current_B" : "current_C";
-
-            const pVal = Number(
-              data[pKey] ||
-                data[`power_ch${channelNum}`] ||
-                data[`${channelNum}_power`] ||
-                data[altP] ||
-                0,
-            );
-            const vVal = Number(
-              data[vKey] ||
-                data[`voltage_ch${channelNum}`] ||
-                data[altV] ||
-                data.total_voltage ||
-                data.voltage ||
-                0,
-            );
-            const iVal = Number(
-              data[iKey] ||
-                data[`ch${channelNum}_current`] ||
-                data[`current_ch${channelNum}`] ||
-                data[altI] ||
-                data.total_current ||
-                data.current ||
-                0,
-            );
-
-            entries.push({ room: rName, power: pVal, volt: vVal, amp: iVal, channel: ch });
-          });
-        } else {
-          // Simple 1-room device
-          const rName = getRoomOfDevice(deviceId);
-          const pVal = Number(data.total_power || data.power || data.watt || data.p || data.w || 0);
-          const vVal = Number(data.total_voltage || data.voltage || data.v || 0);
-          const iVal = Number(data.total_current || data.current || data.a || 0);
-          entries.push({ room: rName, power: pVal, volt: vVal, amp: iVal, channel: null });
-        }
-
-        entries.forEach((entry) => {
-          const floor = getFloorOfDevice(deviceId);
-
-          const record = {
-            rawTime: recordDate.getTime(),
-            timeObj: recordDate,
-            time: recordDate.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
-            date: recordDate.toLocaleDateString("th-TH"),
-            floor: `Floor ${floor}`,
-            room: entry.room,
-            deviceId: entry.channel ? `${deviceId} (Ch ${entry.channel})` : deviceId,
-            power: entry.power,
-            volt: entry.volt,
-            amp: entry.amp,
-            pf: Number(data.pf || 0.95),
-            temp: Number(data.temperature || data.temp || 0),
-            humid: Number(data.humidity || data.hum || 0),
-            dust: Number(data.dust || data.pm25 || data.pm2_5 || 0),
-            status: data.status || "Normal",
-            isWarning: entry.power > 2500,
-            hasEnv: !!(
-              data.temperature ||
-              data.temp ||
-              data.humidity ||
-              data.hum ||
-              data.pm25 ||
-              data.dust
-            ),
-            hasPower: !!(entry.power || entry.volt || entry.amp || data.total_power || data.power),
-          };
-
-          // Apply Filters
-          if (selectedFloor.value !== "All" && floor !== selectedFloor.value) return;
-          if (selectedRoom.value !== "All" && entry.room !== selectedRoom.value) return;
-
-          tempLogs.push(record);
-        });
-      } catch (err) {
-        console.error("[Analytics] Error processing record:", doc.id, err);
-      }
+        if (selectedRoom.value !== "All" && record.room !== selectedRoom.value) return;
+        tempLogs.push(record);
+      });
     });
 
     processedLogs.value = tempLogs;
-    if (tempLogs.length > 0) {
-      console.log(`[Analytics] Latest record time: ${tempLogs[0].date} ${tempLogs[0].time}`);
-    }
     currentPage.value = 1;
   } catch (error) {
     console.error("Firestore Fetch Error:", error);
   } finally {
     isLoading.value = false;
+    fetchLock.value = false;
   }
 };
 
-// --- 3. Fetch Monthly Comparison (ฟังก์ชันที่ปรับให้ดึงตามเดือนที่เลือก) ---
+// --- 3. Fetch Monthly Comparison ---
 const fetchMonthlyComparison = async () => {
   if (!selectedMonth1.value || !selectedMonth2.value) return;
+  if (fetchLock.value) return; // Note: We share the lock for simplicity as they usually fire together
+
   isMonthlyLoading.value = true;
 
   try {
@@ -352,7 +223,6 @@ const fetchMonthlyComparison = async () => {
     const range1 = getMonthRange(selectedMonth1.value);
     const range2 = getMonthRange(selectedMonth2.value);
 
-    // Helper: format Date to "YYYY-MM-DD HH:MM:SS" (Thai Timezone)
     const formatToThaiString = (date) => {
       const pad = (num) => String(num).padStart(2, "0");
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
@@ -363,21 +233,19 @@ const fetchMonthlyComparison = async () => {
     const start2Str = formatToThaiString(range2.start);
     const end2Str = formatToThaiString(range2.end);
 
-    // ⚡ Optimization: Combined queries are heavy, using a more specific limit
     const q1 = query(
       logsRef,
       where("timestamp", ">=", start1Str),
       where("timestamp", "<=", end1Str),
       orderBy("timestamp", "asc"),
-      limit(2000), // ⚡ Optimization: Reduced from 10000 to 2000
+      limit(2000),
     );
-
     const q2 = query(
       logsRef,
       where("timestamp", ">=", start2Str),
       where("timestamp", "<=", end2Str),
       orderBy("timestamp", "asc"),
-      limit(2000), // ⚡ Optimization: Reduced from 10000 to 2000
+      limit(2000),
     );
 
     const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
@@ -385,73 +253,58 @@ const fetchMonthlyComparison = async () => {
     const processMonthlySnap = (snap) => {
       let totalEnergy = 0;
       const days = Array(31).fill(0);
-
-      // We group by day first to calculate daily energy correctly
-      const dailyData = {};
+      const dailyDeviceData = {}; // { day: { fullDeviceId: [energy1, energy2, ...] } }
 
       snap.forEach((doc) => {
-        const data = doc.data();
-        const deviceId = data.device_name || data.devEui || "Unknown";
+        const records = normalizeMeasurement(
+          doc,
+          deviceMappings.value,
+          getFloorOfDevice,
+          getRoomOfDevice,
+        );
+        records.forEach((record) => {
+          // Apply Filters
+          if (
+            selectedFloor.value !== "All" &&
+            record.floor.replace("Floor ", "") !== selectedFloor.value
+          )
+            return;
+          if (selectedRoom.value !== "All" && record.room !== selectedRoom.value) return;
 
-        let recordDate;
-        if (data.timestamp && data.timestamp.toDate) {
-          recordDate = data.timestamp.toDate();
-        } else if (data.timestamp) {
-          const isoStr = data.timestamp.toString().includes(" ")
-            ? data.timestamp.replace(" ", "T")
-            : data.timestamp;
-          recordDate = new Date(isoStr);
-        } else {
-          return;
-        }
+          // Only process if energy field exists and is valid
+          if (typeof record.energy !== "number" || isNaN(record.energy)) return;
 
-        if (!recordDate || isNaN(recordDate.getTime())) return;
+          const day = record.rawTimestamp.getDate();
+          if (!dailyDeviceData[day]) dailyDeviceData[day] = {};
 
-        const day = recordDate.getDate();
-        if (!dailyData[day]) dailyData[day] = { powerSum: 0, count: 0 };
+          const devKey = record.fullDeviceId;
+          if (!dailyDeviceData[day][devKey]) dailyDeviceData[day][devKey] = [];
 
-        const floor = getFloorOfDevice(deviceId);
-        const mappings = deviceMappings.value?.[deviceId];
-
-        if (mappings) {
-          Object.entries(mappings).forEach(([ch, rName]) => {
-            // Extract numeric channel (handles "1" or "ch1")
-            const channelNum = ch.replace("ch", "");
-            if (ch.includes("label") || isNaN(channelNum) || channelNum === "") return;
-
-            if (selectedFloor.value !== "All" && floor !== selectedFloor.value) return;
-            if (selectedRoom.value !== "All" && rName !== selectedRoom.value) return;
-
-            const pVal = Number(
-              data[`ch${channelNum}_power`] ||
-                data[`power_ch${channelNum}`] ||
-                data[`${channelNum}_power`] ||
-                0,
-            );
-            dailyData[day].powerSum += pVal;
-            dailyData[day].count += 1;
-          });
-        } else {
-          const rName = getRoomOfDevice(deviceId);
-          if (selectedFloor.value !== "All" && floor !== selectedFloor.value) return;
-          if (selectedRoom.value !== "All" && rName !== selectedRoom.value) return;
-
-          const pVal = Number(data.total_power || data.power || data.watt || data.p || data.w || 0);
-          dailyData[day].powerSum += pVal;
-          dailyData[day].count += 1;
-        }
+          dailyDeviceData[day][devKey].push(record.energy);
+        });
       });
 
-      // Calculate kWh per day
-      Object.keys(dailyData).forEach((day) => {
-        const d = parseInt(day);
-        const avgW = dailyData[d].powerSum / dailyData[d].count;
-        const dailyKWh = (avgW * 24) / 1000;
+      // After collecting all data, calculate daily differences per device
+      Object.keys(dailyDeviceData).forEach((dayStr) => {
+        const d = parseInt(dayStr);
+        let dayTotalKWh = 0;
 
-        totalEnergy += dailyKWh;
-        if (d >= 1 && d <= 31) {
-          days[d - 1] = dailyKWh;
-        }
+        Object.values(dailyDeviceData[d]).forEach((energies) => {
+          if (energies.length < 2) return; // Need at least 2 points to calculate difference (earliest & latest)
+
+          // Since snapshot is ordered by timestamp ASC from the query,
+          // and we pushed in order, energies[0] is earliest and last is latest.
+          const earliest = energies[0];
+          const latest = energies[energies.length - 1];
+
+          // energy_used = max(0, latest - earliest)
+          // Fields are already in kWh per user requirement.
+          const diff = Math.max(0, latest - earliest);
+          dayTotalKWh += diff;
+        });
+
+        totalEnergy += dayTotalKWh;
+        if (d >= 1 && d <= 31) days[d - 1] = dayTotalKWh;
       });
 
       return { total: totalEnergy, days };
@@ -466,32 +319,7 @@ const fetchMonthlyComparison = async () => {
   }
 };
 
-// --- Helper Functions ---
-const getFloorOfDevice = (deviceId) => {
-  if (!buildingConfig.value) return "Unknown";
-  for (const [floorKey, floorData] of Object.entries(buildingConfig.value)) {
-    if (floorData.rooms) {
-      for (const room of Object.values(floorData.rooms)) {
-        if (room.deviceId === deviceId) {
-          return floorKey.replace("floor_", "") || floorKey;
-        }
-      }
-    }
-  }
-  return "Unknown";
-};
-
-const getRoomOfDevice = (deviceId) => {
-  if (!buildingConfig.value) return "Unknown";
-  for (const floorData of Object.values(buildingConfig.value)) {
-    if (floorData.rooms) {
-      for (const [rName, rData] of Object.entries(floorData.rooms)) {
-        if (rData.deviceId === deviceId) return rName;
-      }
-    }
-  }
-  return "Unknown";
-};
+const { deviceMappings, getFloorOfDevice, getRoomOfDevice } = useBuildingData();
 
 // --- Advanced Filtering Logic ---
 const filteredLogs = computed(() => {
@@ -532,11 +360,8 @@ const prevPage = () => {
 };
 
 // --- Watchers ---
-watch([selectedFloor, selectedRoom, dateRange], () => fetchHistoryData());
-// 💡 3. เมื่อเปลี่ยนเดือน, เปลี่ยนชั้น, เปลี่ยนห้อง ให้ดึงข้อมูลกราฟเปรียบเทียบใหม่
-watch([selectedFloor, selectedRoom, selectedMonth1, selectedMonth2], () =>
-  fetchMonthlyComparison(),
-);
+watch([selectedFloor, selectedRoom, dateRange], () => triggerFetch("history"));
+watch([selectedFloor, selectedRoom, selectedMonth1, selectedMonth2], () => triggerFetch("monthly"));
 watch(selectedFloor, () => {
   selectedRoom.value = "All";
 });
@@ -870,9 +695,9 @@ const handleExport = () => {
     log.power,
     log.volt,
     log.amp,
-    log.temp.toFixed(1),
+    (log.temp ?? 0).toFixed(1),
     log.humid,
-    log.dust,
+    log.pm25 ?? log.dust ?? 0,
   ]);
   const escapeCSV = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
   const csvContent = [
@@ -1019,7 +844,7 @@ console.error("DEBUG: AnalyticsGuest script finished loading.");
         <div class="card-top-row">
           <p class="kpi-label">ความต้องการไฟฟ้าสูงสุด</p>
         </div>
-        <h3 class="text-red-500">{{ (kpiPeak / 1000).toFixed(2) }} kW</h3>
+        <h3 class="text-red-500">{{ ((Number(kpiPeak) || 0) / 1000).toFixed(2) }} kW</h3>
         <div class="progress-bar">
           <div style="width: 85%" class="bg-red-500"></div>
         </div>
@@ -1221,14 +1046,18 @@ console.error("DEBUG: AnalyticsGuest script finished loading.");
                 <td>
                   <span class="room-tag">{{ log.room }}</span>
                 </td>
-                <td style="font-family: monospace; color: #dc2626">{{ log.temp.toFixed(1) }} °C</td>
+                <td style="font-family: monospace; color: #dc2626">
+                  {{ (log.temp ?? 0).toFixed(1) }} °C
+                </td>
 
-                <td style="font-family: monospace; color: #059669">{{ log.humid.toFixed(1) }} %</td>
+                <td style="font-family: monospace; color: #059669">
+                  {{ (log.humid ?? 0).toFixed(1) }} %
+                </td>
                 <td
                   style="font-family: monospace"
-                  :style="{ color: log.dust > 50 ? '#ea580c' : '#475569' }"
+                  :style="{ color: (log.pm25 ?? log.dust ?? 0) > 50 ? '#ea580c' : '#475569' }"
                 >
-                  {{ log.dust.toFixed(1) }}
+                  {{ (log.pm25 ?? log.dust ?? 0).toFixed(1) }}
                   µg/m³
                 </td>
               </tr>
